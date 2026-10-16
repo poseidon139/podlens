@@ -61,6 +61,7 @@ export default function VideoPlayer({
         youtubePlayerRef.current = new window.YT.Player('podlens-yt-player', {
           videoId: videoId,
           playerVars: {
+            enablejsapi: 1,
             autoplay: 0,
             controls: 1,
             modestbranding: 1,
@@ -115,6 +116,10 @@ export default function VideoPlayer({
     onSeek(timeSec);
     if (youtubePlayerRef.current && typeof youtubePlayerRef.current.seekTo === 'function') {
       youtubePlayerRef.current.seekTo(timeSec, true);
+    }
+    // Auto-trigger speech analysis for the seeked position
+    if (onAnalyzeSegment) {
+      onAnalyzeSegment(timeSec);
     }
   };
 

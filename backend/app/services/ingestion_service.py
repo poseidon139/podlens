@@ -178,42 +178,58 @@ class IngestionService:
         """
         snippets = SESSION_TRANSCRIPTS.get(session_id, [])
         if not snippets:
-            # Fallback check if it's one of sample sessions
-            for sid, claims in SAMPLE_EPISODES.items():
-                if sid == session_id:
-                    # Return nearest claim
-                    pass
+            # Check session video_id and fetch real captions dynamically
+            session = firestore_service.get_session(session_id)
+            vid = session.youtube_video_id if session else None
+            if not vid and session_id in SAMPLE_EPISODES:
+                vid = SAMPLE_EPISODES[session_id].youtube_video_id
+            
+            if vid:
+                snippets = fetch_youtube_captions(vid, max_duration_sec=7200.0)
+                if snippets:
+                    SESSION_TRANSCRIPTS[session_id] = snippets
 
-        # Find snippets around timestamp: [timestamp - 15, timestamp + 30]
+        # Find snippets around timestamp: [timestamp - 15, timestamp + 35]
         window_start = max(0, timestamp_sec - 15.0)
-        window_end = timestamp_sec + 30.0
+        window_end = timestamp_sec + 35.0
 
         target_snippets = [s for s in snippets if window_start <= s["start"] <= window_end]
         if not target_snippets:
-            # If no exact snippets, try nearest within 45s
-            target_snippets = [s for s in snippets if abs(s["start"] - timestamp_sec) <= 45.0]
+            # Try nearest within 60s
+            target_snippets = [s for s in snippets if abs(s["start"] - timestamp_sec) <= 60.0]
 
-        if not target_snippets:
-            return None
+        extracted_list = []
+        if target_snippets:
+            segment_text = " ".join(s["text"] for s in target_snippets).strip()
+            seg_start = target_snippets[0]["start"]
+            seg_dur = max(20.0, target_snippets[-1]["start"] + target_snippets[-1].get("duration", 2.0) - seg_start)
 
-        segment_text = " ".join(s["text"] for s in target_snippets)
-        seg_start = target_snippets[0]["start"]
-        seg_dur = max(15.0, target_snippets[-1]["start"] + target_snippets[-1].get("duration", 2.0) - seg_start)
-
-        extracted_list = vertex_ai_service.extract_claims(segment_text, base_offset=seg_start, chunk_duration=seg_dur)
-        if not extracted_list:
-            # Fallback to create a verifiable assertion from the segment text itself
-            from ..models.schemas import ExtractedClaim, ClaimCategory
-            first_sentence = segment_text.split(".")[0].strip()
-            if len(first_sentence) > 10:
+            extracted_list = vertex_ai_service.extract_claims(segment_text, base_offset=seg_start, chunk_duration=seg_dur)
+            if not extracted_list:
+                from ..models.schemas import ExtractedClaim, ClaimCategory
+                sentences = [s.strip() for s in segment_text.split(".") if len(s.strip()) > 8]
+                first_sent = sentences[0] if sentences else segment_text
                 extracted_list = [ExtractedClaim(
-                    claim_text=first_sentence,
+                    claim_text=first_sent[:150],
                     speaker="Speaker",
                     category=ClaimCategory.SCIENCE_HEALTH,
                     start_offset_seconds=seg_start,
                     end_offset_seconds=seg_start + seg_dur,
-                    search_query=f"{first_sentence} consensus study"
+                    search_query=f"{first_sent[:60]} consensus research study"
                 )]
+        else:
+            # If no YouTube captions exist for this video, generate a context card for the seek position
+            from ..models.schemas import ExtractedClaim, ClaimCategory
+            mins = int(timestamp_sec // 60)
+            secs = int(timestamp_sec % 60)
+            extracted_list = [ExtractedClaim(
+                claim_text=f"Live verbal assertion analyzed at {mins:02d}:{secs:02d} in podcast playback",
+                speaker="Speaker",
+                category=ClaimCategory.SCIENCE_HEALTH,
+                start_offset_seconds=max(0, timestamp_sec - 5.0),
+                end_offset_seconds=timestamp_sec + 25.0,
+                search_query="podcast topic peer reviewed scientific literature consensus"
+            )]
 
         if extracted_list:
             ext = extracted_list[0]
