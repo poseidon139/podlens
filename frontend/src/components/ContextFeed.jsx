@@ -7,7 +7,8 @@ export default function ContextFeed({
   activeClaimId,
   currentTime,
   onJumpToTime,
-  isWsConnected = false
+  isWsConnected = false,
+  onOpenVerify
 }) {
   const [statusFilter, setStatusFilter] = useState('ALL');
   const feedContainerRef = useRef(null);
@@ -100,7 +101,27 @@ export default function ContextFeed({
         ref={feedContainerRef}
         className="flex-1 p-4 overflow-y-auto space-y-3.5"
       >
-        {filteredClaims.length === 0 ? (
+        {claims.length === 0 ? (
+          <div className="h-72 flex flex-col items-center justify-center text-center p-6 text-slate-400 space-y-3">
+            <div className="w-10 h-10 rounded-full bg-indigo-500/10 border border-indigo-500/20 flex items-center justify-center text-indigo-400">
+              <Sparkles className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-slate-200">Fresh Stream Loaded</p>
+              <p className="text-xs text-slate-400 mt-1 max-w-xs">
+                No claims have been evaluated for this episode yet.
+              </p>
+            </div>
+            {onOpenVerify && (
+              <button
+                onClick={onOpenVerify}
+                className="px-3.5 py-2 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-500 rounded-lg shadow-md transition"
+              >
+                + Verify a Statement from this Video
+              </button>
+            )}
+          </div>
+        ) : filteredClaims.length === 0 ? (
           <div className="h-64 flex flex-col items-center justify-center text-center p-6 text-slate-500">
             <Filter className="w-8 h-8 mb-2 opacity-50" />
             <p className="text-xs font-medium">No claims match the selected filter.</p>

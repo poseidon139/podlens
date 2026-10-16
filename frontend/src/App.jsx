@@ -39,16 +39,18 @@ export default function App() {
   useEffect(() => {
     if (!activeSessionId) return;
 
+    // Immediately clear previous claims and reset playback head to prevent stale data
+    setClaims([]);
+    setCurrentTime(0);
+    setActiveClaimId(null);
+
     fetchSession(activeSessionId)
       .then((sess) => setCurrentSession(sess))
       .catch((err) => console.error('Failed to load session:', err));
 
     fetchClaims(activeSessionId)
-      .then((data) => setClaims(data))
+      .then((data) => setClaims(data || []))
       .catch((err) => console.error('Failed to load claims:', err));
-
-    setCurrentTime(0);
-    setActiveClaimId(null);
   }, [activeSessionId]);
 
   // 3. Connect to Real-time WebSocket Protocol for Sub-second Sync
@@ -182,6 +184,7 @@ export default function App() {
             currentTime={currentTime}
             onJumpToTime={handleSeek}
             isWsConnected={isWsConnected}
+            onOpenVerify={() => setIsVerifyOpen(true)}
           />
         </section>
       </main>

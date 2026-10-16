@@ -39,26 +39,41 @@ class FirestoreService:
         for sid, claims in SAMPLE_CLAIMS.items():
             self._in_memory_claims[sid] = list(claims)
 
+        # If connected to live Firestore, ensure sample episodes and claims are seeded if missing
+        if self.db:
+            try:
+                for sid, sess in SAMPLE_EPISODES.items():
+                    doc_ref = self.db.collection("sessions").document(sid)
+                    if not doc_ref.get().exists:
+                        doc_ref.set(sess.model_dump())
+                        for c in SAMPLE_CLAIMS.get(sid, []):
+                            doc_ref.collection("claims").document(c.id).set(c.model_dump())
+            except Exception as e:
+                logger.warning(f"Could not auto-seed sample episodes to Firestore: {e}")
+
     def get_session(self, session_id: str) -> Optional[Session]:
         if self.db:
             try:
                 doc = self.db.collection("sessions").document(session_id).get()
                 if doc.exists:
                     return Session(**doc.to_dict())
+                elif session_id in self._in_memory_sessions:
+                    return self._in_memory_sessions[session_id]
             except Exception as e:
                 logger.error(f"Error fetching session {session_id} from Firestore: {e}")
         return self._in_memory_sessions.get(session_id)
 
     def list_sessions(self) -> List[Session]:
+        sessions_map = {s.session_id: s for s in self._in_memory_sessions.values()}
         if self.db:
             try:
                 docs = self.db.collection("sessions").stream()
-                fs_sessions = [Session(**doc.to_dict()) for doc in docs]
-                if fs_sessions:
-                    return fs_sessions
+                for doc in docs:
+                    sess = Session(**doc.to_dict())
+                    sessions_map[sess.session_id] = sess
             except Exception as e:
                 logger.error(f"Error listing sessions from Firestore: {e}")
-        return list(self._in_memory_sessions.values())
+        return list(sessions_map.values())
 
     def save_session(self, session: Session):
         self._in_memory_sessions[session.session_id] = session
@@ -73,13 +88,21 @@ class FirestoreService:
         if self.db:
             try:
                 col_ref = self.db.collection("sessions").document(session_id).collection("claims")
-                docs = col_ref.order_by("timestamp_start").stream()
-                claims = [Claim(**d.to_dict()) for d in docs]
+                docs = list(col_ref.order_by("timestamp_start").stream())
+                if docs:
+                    claims = [Claim(**d.to_dict()) for d in docs]
+                elif session_id in self._in_memory_claims:
+                    claims = list(self._in_memory_claims[session_id])
             except Exception as e:
                 logger.error(f"Error reading claims from Firestore for {session_id}: {e}")
                 claims = self._in_memory_claims.get(session_id, [])
         else:
             claims = self._in_memory_claims.get(session_id, [])
+
+        if min_status:
+            claims = [c for c in claims if c.status.value == min_status]
+            
+        return sorted(claims, key=lambda c: c.timestamp_start)
 
         if min_status:
             claims = [c for c in claims if c.status.value == min_status]

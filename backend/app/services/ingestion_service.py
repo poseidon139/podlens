@@ -1,12 +1,12 @@
 import re
 import uuid
 import logging
-from typing import Optional, Dict
+from typing import Optional, List, Dict
 from datetime import datetime, timezone
 from ..models.schemas import Session, IngestSessionRequest, DossierMetrics
 from .firestore_service import firestore_service
 from .vertex_ai_service import vertex_ai_service
-from ..data.sample_episodes import SAMPLE_EPISODES, SAMPLE_CLAIMS
+from ..data.sample_episodes import SAMPLE_EPISODES
 
 logger = logging.getLogger("podlens.ingestion")
 
@@ -25,23 +25,46 @@ def extract_youtube_video_id(url: str) -> Optional[str]:
             return match.group(1)
     return None
 
+def fetch_youtube_captions(video_id: str, max_duration_sec: float = 300.0) -> List[Dict]:
+    """Fetch real transcripts/captions from YouTube if available"""
+    try:
+        from youtube_transcript_api import YouTubeTranscriptApi
+        # Support fetch on both instance and class depending on library version
+        api = YouTubeTranscriptApi()
+        if hasattr(api, "fetch"):
+            transcript_list = api.fetch(video_id, languages=['en', 'en-US', 'en-GB'])
+        else:
+            transcript_list = YouTubeTranscriptApi.get_transcript(video_id, languages=['en', 'en-US', 'en-GB'])
+        
+        snippets = []
+        for item in transcript_list:
+            start = getattr(item, 'start', None) if not isinstance(item, dict) else item.get('start', 0)
+            text = getattr(item, 'text', '') if not isinstance(item, dict) else item.get('text', '')
+            dur = getattr(item, 'duration', 0) if not isinstance(item, dict) else item.get('duration', 0)
+            if start is not None and start <= max_duration_sec:
+                snippets.append({"start": float(start), "text": str(text), "duration": float(dur)})
+        return snippets
+    except Exception as e:
+        logger.info(f"Could not fetch YouTube captions for {video_id}: {e}")
+        return []
+
 class IngestionService:
     def create_session(self, req: IngestSessionRequest) -> Session:
-        # Check if pre-configured sample ID was requested
-        if req.source_type == "SAMPLE" or (req.sample_id and req.sample_id in SAMPLE_EPISODES):
-            sample_id = req.sample_id or "huberman_fasting"
-            sample = SAMPLE_EPISODES.get(sample_id, SAMPLE_EPISODES["huberman_fasting"])
-            return sample
+        # Check if pre-configured sample ID was explicitly requested
+        if req.source_type == "SAMPLE" and req.sample_id and req.sample_id in SAMPLE_EPISODES:
+            return SAMPLE_EPISODES[req.sample_id]
 
-        # Check if media_url matches any existing sample
         vid_id = extract_youtube_video_id(req.media_url or "")
-        for s in SAMPLE_EPISODES.values():
-            if s.youtube_video_id and s.youtube_video_id == vid_id:
-                return s
+        
+        # If user explicitly picks a sample URL, return that sample
+        if req.source_type == "SAMPLE":
+            for s in SAMPLE_EPISODES.values():
+                if s.youtube_video_id and s.youtube_video_id == vid_id:
+                    return s
 
-        # Create new unique session
+        # For any new ingestion, create a fresh unique session
         session_id = f"sess_{uuid.uuid4().hex[:8]}"
-        title = req.title or f"Podcast Stream ({vid_id or 'Custom Ingest'})"
+        title = req.title or (f"YouTube Stream ({vid_id})" if vid_id else "Live Podcast Stream")
         
         session = Session(
             session_id=session_id,
@@ -53,38 +76,78 @@ class IngestionService:
             status="PROCESSING",
             stream_ws_url=f"/ws/sessions/{session_id}",
             total_claims=0,
-            metrics=DossierMetrics(),
+            metrics=DossierMetrics(
+                verified=0,
+                contested=0,
+                unsupported=0,
+                total_claims=0,
+                truth_score=0.0
+            ),
             created_at=datetime.now(timezone.utc).isoformat()
         )
+        
+        # Save clean session with 0 claims
         firestore_service.save_session(session)
 
-        # Trigger background processing simulation / extraction
-        self._process_stream_async(session)
-        return session
-
-    def _process_stream_async(self, session: Session):
-        """Process incoming stream, extract empirical claims, and ground them"""
-        # If it's a newly ingested video without pre-existing claims, generate rich context claims
-        # or analyze sample transcript
-        sample_transcript = (
-            "Welcome everyone. Today we are looking at nutrition and longevity. "
-            "A recent cohort study with over 150,000 subjects showed that moderate coffee consumption reduces all-cause mortality risk by 12 percent. "
-            "Now on fasting: many influencers claim fasting for 24 hours doubles cellular autophagy in humans. "
-            "However, direct clinical biomarkers in living human tissue remain contested and non-definitive. "
-            "Also, drinking cold water does not burn 500 extra calories a day through thermogenesis; at most it burns 20 calories."
-        )
-
-        try:
-            extracted_list = vertex_ai_service.extract_claims(sample_transcript, base_offset=10.0, chunk_duration=120.0)
-            for idx, ext in enumerate(extracted_list):
-                claim_id = f"clm_{session.session_id}_{idx+1}"
-                grounded_claim = vertex_ai_service.ground_and_verify_claim(ext, session.session_id, claim_id)
-                firestore_service.save_claim(grounded_claim)
-            
+        # Process real audio/transcript for this specific video
+        if vid_id:
+            self._process_video_stream(session, vid_id)
+        else:
             session.status = "READY"
             firestore_service.save_session(session)
-        except Exception as e:
-            logger.error(f"Error processing stream for session {session.session_id}: {e}")
+
+        return session
+
+    def _process_video_stream(self, session: Session, video_id: str):
+        """Fetch real captions for the video and extract empirical claims"""
+        snippets = fetch_youtube_captions(video_id, max_duration_sec=300.0)
+        
+        if snippets:
+            # Combine snippets into 45-second chunks for claim extraction
+            chunks = []
+            current_chunk_text = []
+            chunk_start = snippets[0]["start"]
+            chunk_end = chunk_start
+            
+            for snip in snippets:
+                current_chunk_text.append(snip["text"])
+                chunk_end = snip["start"] + snip.get("duration", 2.0)
+                if chunk_end - chunk_start >= 45.0:
+                    chunks.append({
+                        "text": " ".join(current_chunk_text),
+                        "start": chunk_start,
+                        "duration": chunk_end - chunk_start
+                    })
+                    current_chunk_text = []
+                    chunk_start = chunk_end
+            
+            if current_chunk_text:
+                chunks.append({
+                    "text": " ".join(current_chunk_text),
+                    "start": chunk_start,
+                    "duration": max(15.0, chunk_end - chunk_start)
+                })
+
+            # Extract claims from first 3 chunks
+            claim_index = 1
+            for chunk in chunks[:4]:
+                extracted_list = vertex_ai_service.extract_claims(
+                    chunk["text"],
+                    base_offset=chunk["start"],
+                    chunk_duration=chunk["duration"]
+                )
+                for ext in extracted_list:
+                    claim_id = f"clm_{session.session_id}_{claim_index}"
+                    grounded_claim = vertex_ai_service.ground_and_verify_claim(ext, session.session_id, claim_id)
+                    firestore_service.save_claim(grounded_claim)
+                    claim_index += 1
+
+            session.status = "READY"
+            firestore_service.save_session(session)
+        else:
+            # No automatic captions found for this video.
+            # Keep claims clean and mark session READY so the user can verify statements on-demand.
+            logger.info(f"No auto-captions available for {video_id}. Initializing clean session.")
             session.status = "READY"
             firestore_service.save_session(session)
 
