@@ -1,0 +1,55 @@
+name: Deploy PodLens to Google Cloud Run
+
+on:
+  push:
+    branches:
+      - main
+
+env:
+  PROJECT_ID: podlens-511817
+  REGION: us-central1
+  SERVICE_NAME: podlens
+  IMAGE_NAME: us-central1-docker.pkg.dev/podlens-511817/podlens-repo/podlens
+
+jobs:
+  deploy:
+    name: Build & Deploy
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # Option A: Authenticate using Service Account Key JSON
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Submit Build to Google Cloud Build & Deploy
+        run: |
+          echo "Building container image via Cloud Build..."
+          gcloud builds submit \
+            --tag "${IMAGE_NAME}:${{ github.sha }}" \
+            --tag "${IMAGE_NAME}:latest" \
+            --project="${PROJECT_ID}" .
+
+          echo "Deploying new revision to Cloud Run..."
+          gcloud run deploy "${SERVICE_NAME}" \
+            --image="${IMAGE_NAME}:${{ github.sha }}" \
+            --region="${REGION}" \
+            --project="${PROJECT_ID}" \
+            --platform=managed \
+            --allow-unauthenticated \
+            --port=8080 \
+            --memory=1Gi \
+            --cpu=1 \
+            --timeout=300 \
+            --set-env-vars="GCP_PROJECT_ID=${PROJECT_ID},GCP_LOCATION=${REGION},GEMINI_MODEL=gemini-1.5-flash-001,FIRESTORE_DATABASE=(default),DEMO_MODE=true"

@@ -1,9 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Play, Pause, RotateCcw, Volume2, Sparkles, ExternalLink, ShieldCheck, AlertTriangle, XCircle } from 'lucide-react';
+import { Play, Pause, RotateCcw, Sparkles, ExternalLink, ShieldCheck, AlertTriangle, XCircle, Search, Loader2 } from 'lucide-react';
 import TimelineTicks from './TimelineTicks';
 
 function formatTime(seconds) {
-  if (isNaN(seconds)) return "00:00";
+  if (isNaN(seconds) || seconds < 0) return "00:00";
   const mins = Math.floor(seconds / 60);
   const secs = Math.floor(seconds % 60);
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
@@ -15,17 +15,18 @@ export default function VideoPlayer({
   currentTime = 0,
   activeClaim = null,
   onTimeUpdate,
-  onSeek
+  onSeek,
+  onAnalyzeSegment,
+  isAnalyzing = false
 }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration] = useState(video?.duration_seconds || 300);
-  const playerRef = useRef(null);
   const timerIntervalRef = useRef(null);
   const youtubePlayerRef = useRef(null);
 
   const videoId = video?.youtube_video_id || "9tRohh0gErM";
 
-  // Load YouTube IFrame API if not already present
+  // Load YouTube IFrame API script tag once
   useEffect(() => {
     if (!window.YT) {
       const tag = document.createElement('script');
@@ -33,15 +34,30 @@ export default function VideoPlayer({
       const firstScriptTag = document.getElementsByTagName('script')[0];
       firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
     }
+  }, []);
+
+  // Handle video switching and player lifecycle safely
+  useEffect(() => {
+    if (!videoId) return;
+
+    // If player already initialized, use loadVideoById (preserves DOM and iframe)
+    if (youtubePlayerRef.current && typeof youtubePlayerRef.current.loadVideoById === 'function') {
+      try {
+        youtubePlayerRef.current.loadVideoById(videoId);
+        return;
+      } catch (e) {
+        console.warn("Could not reuse existing player, re-initializing:", e);
+      }
+    }
+
+    // Ensure container has the player mount div
+    const wrapper = document.getElementById('podlens-player-wrapper');
+    if (wrapper) {
+      wrapper.innerHTML = '<div id="podlens-yt-player" class="w-full h-full absolute inset-0"></div>';
+    }
 
     const initPlayer = () => {
       if (window.YT && window.YT.Player) {
-        if (youtubePlayerRef.current) {
-          try {
-            youtubePlayerRef.current.destroy();
-          } catch (e) {}
-        }
-
         youtubePlayerRef.current = new window.YT.Player('podlens-yt-player', {
           videoId: videoId,
           playerVars: {
@@ -57,7 +73,6 @@ export default function VideoPlayer({
               if (dur && dur > 0) setDuration(dur);
             },
             onStateChange: (event) => {
-              // 1 = playing, 2 = paused
               if (event.data === 1) {
                 setIsPlaying(true);
               } else {
@@ -74,17 +89,9 @@ export default function VideoPlayer({
     } else {
       window.onYouTubeIframeAPIReady = initPlayer;
     }
-
-    return () => {
-      if (youtubePlayerRef.current) {
-        try {
-          youtubePlayerRef.current.destroy();
-        } catch (e) {}
-      }
-    };
   }, [videoId]);
 
-  // Playback polling loop to synchronize time with context cards
+  // Synchronize playback timestamp with parent every 350ms
   useEffect(() => {
     timerIntervalRef.current = setInterval(() => {
       if (youtubePlayerRef.current && typeof youtubePlayerRef.current.getCurrentTime === 'function') {
@@ -97,7 +104,7 @@ export default function VideoPlayer({
           }
         } catch (e) {}
       }
-    }, 400);
+    }, 350);
 
     return () => {
       if (timerIntervalRef.current) clearInterval(timerIntervalRef.current);
@@ -129,10 +136,12 @@ export default function VideoPlayer({
     <div className="flex flex-col h-full bg-slate-900/60 rounded-2xl border border-slate-800/80 overflow-hidden shadow-2xl relative">
       {/* Video Container (16:9 Aspect Ratio) */}
       <div className="relative w-full aspect-video bg-black flex items-center justify-center overflow-hidden">
-        <div id="podlens-yt-player" className="w-full h-full absolute inset-0" />
+        <div id="podlens-player-wrapper" className="w-full h-full absolute inset-0">
+          <div id="podlens-yt-player" className="w-full h-full absolute inset-0" />
+        </div>
 
-        {/* Floating In-Stream Context Pill (User Journey Phase 3) */}
-        {activeClaim && (
+        {/* Floating In-Stream Context Pill (Active Claim) */}
+        {activeClaim ? (
           <div className="absolute top-4 right-4 z-30 max-w-sm animate-in fade-in slide-in-from-top-3 duration-300">
             <div className={`p-3 rounded-xl backdrop-blur-xl border shadow-2xl ${
               activeClaim.status === 'VERIFIED'
@@ -156,6 +165,25 @@ export default function VideoPlayer({
                 "{activeClaim.claim_text}"
               </p>
             </div>
+          </div>
+        ) : (
+          /* On-Demand Seek Fact-Checking Pill */
+          <div className="absolute top-4 right-4 z-30 animate-in fade-in duration-200">
+            {isAnalyzing ? (
+              <div className="flex items-center space-x-2 bg-indigo-950/90 border border-indigo-500/50 text-indigo-200 text-xs px-3 py-1.5 rounded-xl backdrop-blur-md shadow-xl">
+                <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+                <span>Grounding speech at {formatTime(currentTime)}...</span>
+              </div>
+            ) : onAnalyzeSegment ? (
+              <button
+                onClick={() => onAnalyzeSegment(currentTime)}
+                className="flex items-center space-x-1.5 bg-slate-900/85 hover:bg-indigo-900/90 border border-slate-700/70 hover:border-indigo-500/50 text-slate-300 hover:text-white text-xs px-3 py-1.5 rounded-xl backdrop-blur-md shadow-lg transition"
+                title="Ground speech at this exact moment in the video"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                <span>Ground Speech @ {formatTime(currentTime)}</span>
+              </button>
+            ) : null}
           </div>
         )}
       </div>
@@ -231,7 +259,7 @@ export default function VideoPlayer({
                 {video?.title || "Podcast Stream"}
               </p>
               <p className="text-[11px] text-slate-400">
-                Synchronized with Vertex AI & Google Search
+                Synchronized with Vertex AI & Google Search Grounding
               </p>
             </div>
           </div>

@@ -41,6 +41,14 @@ export async function verifyCustomClaim(sessionId, payload) {
   return res.json();
 }
 
+export async function analyzeSegment(sessionId, timestamp) {
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}/claims/analyze_segment?timestamp=${timestamp}`, {
+    method: 'POST',
+  });
+  if (!res.ok) throw new Error('Failed to analyze segment');
+  return res.json();
+}
+
 export function getExportUrl(sessionId, format = 'markdown') {
   return `${API_BASE}/sessions/${sessionId}/dossier/export?format=${format}`;
 }

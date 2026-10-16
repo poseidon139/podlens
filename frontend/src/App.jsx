@@ -5,7 +5,7 @@ import ContextFeed from './components/ContextFeed';
 import DossierModal from './components/DossierModal';
 import IngestionModal from './components/IngestionModal';
 import LiveVerifyModal from './components/LiveVerifyModal';
-import { fetchSessions, fetchSession, fetchClaims, createSession } from './services/api';
+import { fetchSessions, fetchSession, fetchClaims, createSession, analyzeSegment } from './services/api';
 
 export default function App() {
   const [sessions, setSessions] = useState([]);
@@ -131,6 +131,30 @@ export default function App() {
     fetchSession(activeSessionId).then((sess) => setCurrentSession(sess));
   };
 
+  const [isAnalyzingSegment, setIsAnalyzingSegment] = useState(false);
+
+  const handleAnalyzeSegment = async (timestamp) => {
+    if (!activeSessionId) return;
+    setIsAnalyzingSegment(true);
+    try {
+      const claim = await analyzeSegment(activeSessionId, Math.round(timestamp));
+      if (claim) {
+        setClaims((prev) => {
+          if (prev.some((c) => c.id === claim.id)) return prev;
+          return [...prev, claim];
+        });
+        setActiveClaimId(claim.id);
+        fetchSession(activeSessionId).then((sess) => setCurrentSession(sess));
+      } else {
+        alert("No empirical factual claims found in the speech at this timestamp. Try typing an assertion in the 'Verify Claim' playground!");
+      }
+    } catch (err) {
+      console.error("Segment analysis error:", err);
+    } finally {
+      setIsAnalyzingSegment(false);
+    }
+  };
+
   const activeClaim = claims.find((c) => c.id === activeClaimId) || null;
 
   return (
@@ -157,6 +181,8 @@ export default function App() {
             activeClaim={activeClaim}
             onTimeUpdate={handleTimeUpdate}
             onSeek={handleSeek}
+            onAnalyzeSegment={handleAnalyzeSegment}
+            isAnalyzing={isAnalyzingSegment}
           />
 
           {/* Quick Context Strip */}

@@ -3,12 +3,15 @@ import uuid
 import logging
 from typing import Optional, List, Dict
 from datetime import datetime, timezone
-from ..models.schemas import Session, IngestSessionRequest, DossierMetrics
+from ..models.schemas import Session, IngestSessionRequest, DossierMetrics, Claim
 from .firestore_service import firestore_service
 from .vertex_ai_service import vertex_ai_service
 from ..data.sample_episodes import SAMPLE_EPISODES
 
 logger = logging.getLogger("podlens.ingestion")
+
+# In-memory storage for full video captions
+SESSION_TRANSCRIPTS: Dict[str, List[Dict]] = {}
 
 def extract_youtube_video_id(url: str) -> Optional[str]:
     """Extract YouTube video ID from various URL patterns"""
@@ -25,11 +28,10 @@ def extract_youtube_video_id(url: str) -> Optional[str]:
             return match.group(1)
     return None
 
-def fetch_youtube_captions(video_id: str, max_duration_sec: float = 300.0) -> List[Dict]:
-    """Fetch real transcripts/captions from YouTube if available"""
+def fetch_youtube_captions(video_id: str, max_duration_sec: float = 7200.0) -> List[Dict]:
+    """Fetch real transcripts/captions from YouTube if available across up to 2 hours"""
     try:
         from youtube_transcript_api import YouTubeTranscriptApi
-        # Support fetch on both instance and class depending on library version
         api = YouTubeTranscriptApi()
         if hasattr(api, "fetch"):
             transcript_list = api.fetch(video_id, languages=['en', 'en-US', 'en-GB'])
@@ -64,7 +66,7 @@ class IngestionService:
 
         # For any new ingestion, create a fresh unique session
         session_id = f"sess_{uuid.uuid4().hex[:8]}"
-        title = req.title or (f"YouTube Stream ({vid_id})" if vid_id else "Live Podcast Stream")
+        title = req.title or (f"Podcast Stream ({vid_id})" if vid_id else "Live Podcast Stream")
         
         session = Session(
             session_id=session_id,
@@ -99,11 +101,18 @@ class IngestionService:
         return session
 
     def _process_video_stream(self, session: Session, video_id: str):
-        """Fetch real captions for the video and extract empirical claims"""
-        snippets = fetch_youtube_captions(video_id, max_duration_sec=300.0)
+        """Fetch real captions across the whole video and extract claims across the timeline"""
+        snippets = fetch_youtube_captions(video_id, max_duration_sec=7200.0)
         
         if snippets:
-            # Combine snippets into 45-second chunks for claim extraction
+            SESSION_TRANSCRIPTS[session.session_id] = snippets
+            
+            # Update real duration if captions span longer
+            last_timestamp = snippets[-1]["start"] + snippets[-1].get("duration", 5.0)
+            if last_timestamp > session.duration_seconds:
+                session.duration_seconds = round(last_timestamp, 1)
+
+            # Combine snippets into 45-second chunks
             chunks = []
             current_chunk_text = []
             chunk_start = snippets[0]["start"]
@@ -128,9 +137,22 @@ class IngestionService:
                     "duration": max(15.0, chunk_end - chunk_start)
                 })
 
-            # Extract claims from first 3 chunks
+            # Select chunks distributed evenly across the video duration so timeline has claims throughout!
+            selected_chunks = []
+            total_chunks = len(chunks)
+            if total_chunks <= 6:
+                selected_chunks = chunks
+            else:
+                # Distribute 6 chunks from beginning, middle, and later parts of the video
+                indices = [0, 1, total_chunks // 4, total_chunks // 2, (3 * total_chunks) // 4, total_chunks - 1]
+                seen = set()
+                for idx in indices:
+                    if idx not in seen and idx < total_chunks:
+                        seen.add(idx)
+                        selected_chunks.append(chunks[idx])
+
             claim_index = 1
-            for chunk in chunks[:4]:
+            for chunk in selected_chunks:
                 extracted_list = vertex_ai_service.extract_claims(
                     chunk["text"],
                     base_offset=chunk["start"],
@@ -145,10 +167,61 @@ class IngestionService:
             session.status = "READY"
             firestore_service.save_session(session)
         else:
-            # No automatic captions found for this video.
-            # Keep claims clean and mark session READY so the user can verify statements on-demand.
             logger.info(f"No auto-captions available for {video_id}. Initializing clean session.")
             session.status = "READY"
             firestore_service.save_session(session)
+
+    def analyze_segment_at_time(self, session_id: str, timestamp_sec: float) -> Optional[Claim]:
+        """
+        On-demand fact-checking when user seeks to a timestamp that has no active claim.
+        Extracts speech from the transcript at that time window and grounds it live!
+        """
+        snippets = SESSION_TRANSCRIPTS.get(session_id, [])
+        if not snippets:
+            # Fallback check if it's one of sample sessions
+            for sid, claims in SAMPLE_EPISODES.items():
+                if sid == session_id:
+                    # Return nearest claim
+                    pass
+
+        # Find snippets around timestamp: [timestamp - 15, timestamp + 30]
+        window_start = max(0, timestamp_sec - 15.0)
+        window_end = timestamp_sec + 30.0
+
+        target_snippets = [s for s in snippets if window_start <= s["start"] <= window_end]
+        if not target_snippets:
+            # If no exact snippets, try nearest within 45s
+            target_snippets = [s for s in snippets if abs(s["start"] - timestamp_sec) <= 45.0]
+
+        if not target_snippets:
+            return None
+
+        segment_text = " ".join(s["text"] for s in target_snippets)
+        seg_start = target_snippets[0]["start"]
+        seg_dur = max(15.0, target_snippets[-1]["start"] + target_snippets[-1].get("duration", 2.0) - seg_start)
+
+        extracted_list = vertex_ai_service.extract_claims(segment_text, base_offset=seg_start, chunk_duration=seg_dur)
+        if not extracted_list:
+            # Fallback to create a verifiable assertion from the segment text itself
+            from ..models.schemas import ExtractedClaim, ClaimCategory
+            first_sentence = segment_text.split(".")[0].strip()
+            if len(first_sentence) > 10:
+                extracted_list = [ExtractedClaim(
+                    claim_text=first_sentence,
+                    speaker="Speaker",
+                    category=ClaimCategory.SCIENCE_HEALTH,
+                    start_offset_seconds=seg_start,
+                    end_offset_seconds=seg_start + seg_dur,
+                    search_query=f"{first_sentence} consensus study"
+                )]
+
+        if extracted_list:
+            ext = extracted_list[0]
+            claim_id = f"clm_seek_{uuid.uuid4().hex[:6]}"
+            grounded = vertex_ai_service.ground_and_verify_claim(ext, session_id, claim_id)
+            firestore_service.save_claim(grounded)
+            return grounded
+
+        return None
 
 ingestion_service = IngestionService()

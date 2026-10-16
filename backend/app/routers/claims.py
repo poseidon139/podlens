@@ -43,3 +43,17 @@ def verify_custom_claim(session_id: str, req: VerifyTextRequest):
     grounded_claim = vertex_ai_service.ground_and_verify_claim(extracted, session_id, claim_id)
     firestore_service.save_claim(grounded_claim)
     return grounded_claim
+
+@router.post("/analyze_segment", response_model=Optional[Claim])
+def analyze_speech_segment(session_id: str, timestamp: float = Query(..., description="Playback timestamp to analyze in seconds")):
+    """
+    On-demand analysis of speech when user seeks to a timestamp with no evaluated claims
+    """
+    from ..services.ingestion_service import ingestion_service
+    session = firestore_service.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    claim = ingestion_service.analyze_segment_at_time(session_id, timestamp)
+    return claim
+
