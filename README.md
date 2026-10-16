@@ -31,7 +31,7 @@ Long-form video podcasts (science interviews, historical deep-dives, economic de
 |  Chrome Overlay  |      | Realtime Sync Bus |      | Timecoded Claim Store    |
 +------------------+      +-------------------+      +--------------------------+
 ```
-*Detailed breakdown available in [`docs/architecture.md`](docs/architecture.md).*
+*Detailed breakdown available in [`docs/system_architecture.md`](docs/system_architecture.md).*
 
 ---
 
