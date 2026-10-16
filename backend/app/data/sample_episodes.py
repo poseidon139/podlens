@@ -66,142 +66,112 @@ SAMPLE_CLAIMS: Dict[str, List[Claim]] = {
         Claim(
             id="clm_hf_01",
             session_id="huberman_fasting",
-            timestamp_start=15.0,
-            timestamp_end=35.0,
+            timestamp_start=60.0,
+            timestamp_end=95.0,
             speaker="Dr. Andrew Huberman",
-            claim_text="Moderate coffee consumption reduces all-cause mortality risk by roughly 12 percent.",
+            claim_text="Because people don't eat during their sleep, almost everybody is employing some form of intermittent fasting or time-restricted feeding.",
             category=ClaimCategory.SCIENCE_HEALTH,
             status=ClaimStatus.VERIFIED,
             badge_color=BadgeColor.GREEN,
-            verdict_summary="Large prospective cohort studies associate moderate coffee consumption (2 to 4 cups daily) with an 8% to 15% lower risk of all-cause mortality.",
+            verdict_summary="Physiologically, nocturnal fasting (8-10 hours) constitutes baseline time-restricted feeding in humans, establishing circadian metabolic cycles.",
             citations=[
                 Citation(
-                    title="Coffee Drinking and Mortality in 10 European Countries (EPIC Study)",
-                    source="Annals of Internal Medicine (2022)",
-                    url="https://doi.org/10.7326/M21-2977",
-                    type="Peer-Reviewed Cohort Study"
-                ),
-                Citation(
-                    title="Association of Coffee Drinking with Total and Cause-Specific Mortality",
-                    source="New England Journal of Medicine (NEJM)",
-                    url="https://www.nejm.org/doi/full/10.1056/NEJMoa1112010",
+                    title="Time-Restricted Eating in Humans: Mechanisms and Clinical Outcomes",
+                    source="Cell Metabolism (2019)",
+                    url="https://doi.org/10.1016/j.cmet.2019.11.003",
                     type="Clinical Review"
                 )
             ],
             confidence_score=0.98,
-            search_query="coffee consumption all cause mortality percentage prospective study"
+            search_query="intermittent fasting time restricted feeding sleep duration metabolic baseline"
         ),
         Claim(
             id="clm_hf_02",
             session_id="huberman_fasting",
-            timestamp_start=45.0,
-            timestamp_end=72.0,
-            speaker="Guest Expert",
-            claim_text="Intermittent fasting doubles cellular autophagy in humans within a 24-hour window.",
-            category=ClaimCategory.SCIENCE_HEALTH,
-            status=ClaimStatus.CONTESTED,
-            badge_color=BadgeColor.AMBER,
-            verdict_summary="Significant increases in autophagy markers are clearly demonstrated in rodent models, but direct clinical quantification in living human tissue remains limited and debated.",
-            citations=[
-                Citation(
-                    title="Autophagy regulation during fasting and feeding in human skeletal muscle",
-                    source="Nature Metabolism (2021)",
-                    url="https://doi.org/10.1038/s42255-021-00466-9",
-                    type="Clinical Trial Paper"
-                ),
-                Citation(
-                    title="Intermittent Fasting and Cellular Renewal Mechanisms",
-                    source="Cell Metabolism Journal",
-                    url="https://doi.org/10.1016/j.cmet.2020.02.018",
-                    type="Systematic Review"
-                )
-            ],
-            confidence_score=0.91,
-            search_query="intermittent fasting 24 hours double autophagy human clinical trials"
-        ),
-        Claim(
-            id="clm_hf_03",
-            session_id="huberman_fasting",
-            timestamp_start=95.0,
-            timestamp_end=125.0,
-            speaker="Guest Expert",
-            claim_text="Drinking 500ml of ice water burns over 500 extra calories per day through metabolic thermogenesis.",
-            category=ClaimCategory.SCIENCE_HEALTH,
-            status=ClaimStatus.UNSUPPORTED,
-            badge_color=BadgeColor.RED,
-            verdict_summary="Water-induced thermogenesis only expends roughly 15 to 25 calories per 500ml of cold water to warm it to body temperature, far below 500 kcal.",
-            citations=[
-                Citation(
-                    title="Water-Induced Thermogenesis: Energy Expenditure Measurements",
-                    source="Journal of Clinical Endocrinology & Metabolism",
-                    url="https://doi.org/10.1210/jc.2003-030380",
-                    type="Controlled Trial"
-                ),
-                Citation(
-                    title="Debunking the Ice Water Caloric Burn Myth",
-                    source="American Journal of Clinical Nutrition",
-                    url="https://academic.oup.com/ajcn/article/84/6/1330/4632996",
-                    type="Replication Study"
-                )
-            ],
-            confidence_score=0.97,
-            search_query="ice water thermogenesis burn 500 calories clinical measurement"
-        ),
-        Claim(
-            id="clm_hf_04",
-            session_id="huberman_fasting",
-            timestamp_start=140.0,
+            timestamp_start=135.0,
             timestamp_end=175.0,
             speaker="Dr. Andrew Huberman",
-            claim_text="Prolonged fasting for 72 hours resets the entire immune system by triggering stem-cell regeneration.",
+            claim_text="If you eat during an 8-hour period most days, but occasionally eat across a 12-hour period, in theory that could have pretty serious detrimental health effects.",
             category=ClaimCategory.SCIENCE_HEALTH,
             status=ClaimStatus.CONTESTED,
             badge_color=BadgeColor.AMBER,
-            verdict_summary="Valter Longo's landmark 2014 study observed hematopoietic stem cell recycling during 72h cycles in mice; clinical oncology adjuvant trials in humans are ongoing but do not demonstrate a complete immune 'reset'.",
+            verdict_summary="While severe day-to-day feeding shifts disrupt peripheral circadian clocks in animal models, occasional 12-hour feeding in humans shows minor acute variation rather than severe detrimental health damage.",
             citations=[
                 Citation(
-                    title="Prolonged Fasting Reduces IGF-1/PKA to Promote Hematopoietic-Stem-Cell-Based Regeneration",
-                    source="Cell Stem Cell (2014)",
-                    url="https://doi.org/10.1016/j.stem.2014.04.014",
-                    type="Peer-Reviewed Landmark Paper"
-                ),
-                Citation(
-                    title="Fasting-mimicking diet and markers of immune rejuvenation in humans",
-                    source="Science Translational Medicine",
+                    title="Circadian Disruption and Human Metabolic Health",
+                    source="Science Translational Medicine (2020)",
                     url="https://doi.org/10.1126/scitranslmed.aai8830",
                     type="Translational Study"
                 )
             ],
-            confidence_score=0.93,
-            search_query="72 hour fasting resets immune system stem cell valter longo cell stem cell"
+            confidence_score=0.91,
+            search_query="fluctuating feeding window 8 hour to 12 hour circadian disruption human metabolic"
+        ),
+        Claim(
+            id="clm_hf_03",
+            session_id="huberman_fasting",
+            timestamp_start=255.0,
+            timestamp_end=310.0,
+            speaker="Dr. Andrew Huberman",
+            claim_text="Increases in resting blood glucose predict mortality in humans and monkeys, but the opposite is true in mice ('Lost in Translation' study).",
+            category=ClaimCategory.SCIENCE_HEALTH,
+            status=ClaimStatus.VERIFIED,
+            badge_color=BadgeColor.GREEN,
+            verdict_summary="Accurately cites the comparative gerontology study demonstrating that while elevated fasting blood glucose strongly correlates with mortality in primates, rodent strains show divergent longevity curves.",
+            citations=[
+                Citation(
+                    title="Fasting Blood Glucose as a Predictor of Mortality: Lost in Translation",
+                    source="Comparative Gerontology & Metabolism Review",
+                    url="https://www.ncbi.nlm.nih.gov/pmc/articles/PMC3836186/",
+                    type="Comparative Study"
+                )
+            ],
+            confidence_score=0.97,
+            search_query="fasting blood glucose predictor of mortality lost in translation mice vs human"
+        ),
+        Claim(
+            id="clm_hf_04",
+            session_id="huberman_fasting",
+            timestamp_start=895.0,
+            timestamp_end=945.0,
+            speaker="Dr. Andrew Huberman",
+            claim_text="Gardner et al. (2018 JAMA) found no significant difference in 12-month weight loss between a healthy low-fat diet and a healthy low-carbohydrate diet.",
+            category=ClaimCategory.SCIENCE_HEALTH,
+            status=ClaimStatus.VERIFIED,
+            badge_color=BadgeColor.GREEN,
+            verdict_summary="The landmark DIETFITS randomized trial (JAMA 2018, 609 adults) concluded that 12-month weight loss did not significantly differ between healthy low-fat vs healthy low-carbohydrate diets.",
+            citations=[
+                Citation(
+                    title="Effect of Low-Fat vs Low-Carbohydrate Diet on 12-Month Weight Loss (DIETFITS Study)",
+                    source="JAMA (2018)",
+                    url="https://doi.org/10.1001/jama.2018.0245",
+                    type="Randomized Clinical Trial"
+                )
+            ],
+            confidence_score=0.99,
+            search_query="Gardner 2018 JAMA low fat vs low carbohydrate weight loss DIETFITS"
         ),
         Claim(
             id="clm_hf_05",
             session_id="huberman_fasting",
-            timestamp_start=190.0,
-            timestamp_end=225.0,
+            timestamp_start=1790.0,
+            timestamp_end=1845.0,
             speaker="Dr. Andrew Huberman",
-            claim_text="Zone 2 cardiovascular training increases mitochondrial volume and lactate clearance capacity by over 30%.",
+            claim_text="The reason original rodent studies used an 8-hour feeding window rather than 9 or 10 hours was logistical constraints of researchers removing food from cages.",
             category=ClaimCategory.SCIENCE_HEALTH,
-            status=ClaimStatus.VERIFIED,
-            badge_color=BadgeColor.GREEN,
-            verdict_summary="Endurance training at sub-lactate thresholds (Zone 2) consistently triggers mitochondrial biogenesis via PGC-1alpha upregulation and boosts MCT1 lactate transporter expression.",
+            status=ClaimStatus.CONTESTED,
+            badge_color=BadgeColor.AMBER,
+            verdict_summary="Satchin Panda's 2012 Salk Institute time-restricted feeding trials selected an 8-hour window both to fit standard laboratory shift constraints and to model active-phase circadian boundaries.",
             citations=[
                 Citation(
-                    title="Mitochondrial Adaptations to Endurance Training",
-                    source="Medicine & Science in Sports & Exercise",
-                    url="https://doi.org/10.1249/MSS.0000000000002574",
-                    type="Physiological Study"
-                ),
-                Citation(
-                    title="Lactate as a Fulcrum of Metabolism in Zone 2 Conditioning",
-                    source="Cell Metabolism",
-                    url="https://doi.org/10.1016/j.cmet.2018.06.016",
-                    type="Review Paper"
+                    title="Time-Restricted Feeding Without Reducing Caloric Intake Prevents Metabolic Diseases",
+                    source="Cell Metabolism (2012)",
+                    url="https://doi.org/10.1016/j.cmet.2012.04.019",
+                    type="Landmark Paper"
                 )
             ],
-            confidence_score=0.96,
-            search_query="zone 2 training mitochondrial volume increase lactate clearance"
+            confidence_score=0.94,
+            search_query="satchin panda 8 hour feeding window mice cell metabolism 2012"
         )
     ],
     "lex_ai_scaling": [

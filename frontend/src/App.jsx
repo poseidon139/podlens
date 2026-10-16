@@ -146,7 +146,7 @@ export default function App() {
         setActiveClaimId(claim.id);
         fetchSession(activeSessionId).then((sess) => setCurrentSession(sess));
       } else {
-        alert("No empirical factual claims found in the speech at this timestamp. Try typing an assertion in the 'Verify Claim' playground!");
+        console.warn("No empirical factual claims found in the speech at timestamp:", timestamp);
       }
     } catch (err) {
       console.error("Segment analysis error:", err);
