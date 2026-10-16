@@ -1,0 +1,43 @@
+steps:
+  # 1. Build the container image using Cloud Build
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - '$_LOCATION-docker.pkg.dev/$PROJECT_ID/podlens-repo/podlens:latest'
+      - '-t'
+      - '$_LOCATION-docker.pkg.dev/$PROJECT_ID/podlens-repo/podlens:$COMMIT_SHA'
+      - '.'
+
+  # 2. Push the container image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '$_LOCATION-docker.pkg.dev/$PROJECT_ID/podlens-repo/podlens:latest'
+
+  # 3. Deploy container image to Google Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - 'podlens'
+      - '--image=$_LOCATION-docker.pkg.dev/$PROJECT_ID/podlens-repo/podlens:latest'
+      - '--region=$_LOCATION'
+      - '--platform=managed'
+      - '--allow-unauthenticated'
+      - '--set-env-vars=GCP_PROJECT_ID=$PROJECT_ID,GCP_LOCATION=$_LOCATION,GEMINI_MODEL=gemini-1.5-flash-001,DEMO_MODE=false'
+      - '--memory=1Gi'
+      - '--cpu=1'
+      - '--min-instances=0'
+      - '--max-instances=5'
+      - '--timeout=300'
+
+substitutions:
+  _LOCATION: 'us-central1'
+
+images:
+  - '$_LOCATION-docker.pkg.dev/$PROJECT_ID/podlens-repo/podlens:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

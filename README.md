@@ -74,11 +74,21 @@ npm run dev
 ```
 Navigate to `http://localhost:3000` to start analyzing streams.
 
+### 4. Deploy Prototype to Google Cloud Run (1-Command)
+```bash
+# Setup GCP APIs & IAM
+./deploy/setup_gcp.sh YOUR_PROJECT_ID us-central1
+
+# Build and Deploy to Cloud Run
+./deploy/deploy_cloud_run.sh YOUR_PROJECT_ID us-central1
+```
+
 ---
 
 ## 📚 Project Documentation
-- [System Architecture](docs/architecture.md)
-- [User Journey & Experience](docs/user_journey.md)
-- [Prompt Engineering & Schemas](docs/prompt_engineering.md)
-- [API & WebSocket Specification](docs/api_spec.md)
-- [Hackathon Demo Runbook](docs/demo_script.md)
+- [System Architecture](docs/system_architecture.md)
+- [User Journey & Experience](docs/user_journey_experience.md)
+- [Google Cloud Console Deployment Guide](docs/gcp_console_deployment_guide.md)
+- [Prompt Engineering & Schemas](docs/prompt_engineering_schemas.md)
+- [API & WebSocket Specification](docs/api_websocket_specification.md)
+- [Hackathon Demo Runbook](docs/hackathon_demo_runbook.md)
