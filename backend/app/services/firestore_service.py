@@ -39,15 +39,14 @@ class FirestoreService:
         for sid, claims in SAMPLE_CLAIMS.items():
             self._in_memory_claims[sid] = list(claims)
 
-        # If connected to live Firestore, ensure sample episodes and claims are seeded if missing
+        # If connected to live Firestore, ensure sample episodes and claims are synchronized
         if self.db:
             try:
                 for sid, sess in SAMPLE_EPISODES.items():
                     doc_ref = self.db.collection("sessions").document(sid)
-                    if not doc_ref.get().exists:
-                        doc_ref.set(sess.model_dump())
-                        for c in SAMPLE_CLAIMS.get(sid, []):
-                            doc_ref.collection("claims").document(c.id).set(c.model_dump())
+                    doc_ref.set(sess.model_dump())
+                    for c in SAMPLE_CLAIMS.get(sid, []):
+                        doc_ref.collection("claims").document(c.id).set(c.model_dump())
             except Exception as e:
                 logger.warning(f"Could not auto-seed sample episodes to Firestore: {e}")
 
