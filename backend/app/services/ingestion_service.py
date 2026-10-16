@@ -1,4 +1,6 @@
+import os
 import re
+import json
 import uuid
 import logging
 from typing import Optional, List, Dict
@@ -28,6 +30,24 @@ def extract_youtube_video_id(url: str) -> Optional[str]:
             return match.group(1)
     return None
 
+def load_bundled_transcript(session_id: str, video_id: Optional[str] = None) -> List[Dict]:
+    """Load pre-bundled high-fidelity transcript from disk if available"""
+    transcripts_dir = os.path.join(os.path.dirname(__file__), "..", "data", "transcripts")
+    candidates = [f"{session_id}.json"]
+    if video_id:
+        candidates.append(f"{video_id}.json")
+    for fname in candidates:
+        fpath = os.path.join(transcripts_dir, fname)
+        if os.path.exists(fpath):
+            try:
+                with open(fpath, "r", encoding="utf-8") as f:
+                    data = json.load(f)
+                    if isinstance(data, list) and data:
+                        return data
+            except Exception as e:
+                logger.warning(f"Failed to read bundled transcript {fpath}: {e}")
+    return []
+
 def fetch_youtube_captions(video_id: str, max_duration_sec: float = 7200.0) -> List[Dict]:
     """Fetch real transcripts/captions from YouTube if available across up to 2 hours"""
     try:
@@ -51,6 +71,11 @@ def fetch_youtube_captions(video_id: str, max_duration_sec: float = 7200.0) -> L
         return []
 
 class IngestionService:
+    def __init__(self):
+        for sid in ["huberman_fasting", "lex_ai_scaling"]:
+            bundled = load_bundled_transcript(sid)
+            if bundled:
+                SESSION_TRANSCRIPTS[sid] = bundled
     def create_session(self, req: IngestSessionRequest) -> Session:
         # Check if pre-configured sample ID was explicitly requested
         if req.source_type == "SAMPLE" and req.sample_id and req.sample_id in SAMPLE_EPISODES:
@@ -102,7 +127,9 @@ class IngestionService:
 
     def _process_video_stream(self, session: Session, video_id: str):
         """Fetch real captions across the whole video and extract claims across the timeline"""
-        snippets = fetch_youtube_captions(video_id, max_duration_sec=7200.0)
+        snippets = load_bundled_transcript(session.session_id, video_id)
+        if not snippets:
+            snippets = fetch_youtube_captions(video_id, max_duration_sec=7200.0)
         
         if snippets:
             SESSION_TRANSCRIPTS[session.session_id] = snippets
@@ -178,16 +205,16 @@ class IngestionService:
         """
         snippets = SESSION_TRANSCRIPTS.get(session_id, [])
         if not snippets:
-            # Check session video_id and fetch real captions dynamically
             session = firestore_service.get_session(session_id)
             vid = session.youtube_video_id if session else None
             if not vid and session_id in SAMPLE_EPISODES:
                 vid = SAMPLE_EPISODES[session_id].youtube_video_id
             
-            if vid:
+            snippets = load_bundled_transcript(session_id, vid)
+            if not snippets and vid:
                 snippets = fetch_youtube_captions(vid, max_duration_sec=7200.0)
-                if snippets:
-                    SESSION_TRANSCRIPTS[session_id] = snippets
+            if snippets:
+                SESSION_TRANSCRIPTS[session_id] = snippets
 
         # Find snippets around timestamp: [timestamp - 15, timestamp + 35]
         window_start = max(0, timestamp_sec - 15.0)
