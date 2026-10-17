@@ -33,14 +33,26 @@ jobs:
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Submit Build to Google Cloud Build & Deploy
+      - name: Configure Docker for Google Artifact Registry
         run: |
-          echo "Building container image via Cloud Build..."
-          gcloud builds submit \
-            --tag "${IMAGE_NAME}:${{ github.sha }}" \
-            --tag "${IMAGE_NAME}:latest" \
-            --project="${PROJECT_ID}" .
+          echo "Configuring docker authentication..."
+          gcloud auth configure-docker us-central1-docker.pkg.dev --quiet
 
+      - name: Build Docker Container Image
+        run: |
+          echo "Building multi-stage container locally on GitHub Actions runner..."
+          docker build \
+            -t "${IMAGE_NAME}:${{ github.sha }}" \
+            -t "${IMAGE_NAME}:latest" .
+
+      - name: Push Container Image to Artifact Registry
+        run: |
+          echo "Pushing container image to Artifact Registry..."
+          docker push "${IMAGE_NAME}:${{ github.sha }}"
+          docker push "${IMAGE_NAME}:latest"
+
+      - name: Deploy to Cloud Run
+        run: |
           echo "Deploying new revision to Cloud Run..."
           gcloud run deploy "${SERVICE_NAME}" \
             --image="${IMAGE_NAME}:${{ github.sha }}" \
@@ -53,3 +65,4 @@ jobs:
             --cpu=1 \
             --timeout=300 \
             --set-env-vars="GCP_PROJECT_ID=${PROJECT_ID},GCP_LOCATION=${REGION},GEMINI_MODEL=gemini-1.5-flash-001,FIRESTORE_DATABASE=(default),DEMO_MODE=true"
+
