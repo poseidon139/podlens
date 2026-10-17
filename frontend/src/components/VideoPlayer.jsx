@@ -21,6 +21,18 @@ function formatTime(seconds) {
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }
 
+function extractVideoId(vid) {
+  if (!vid) return "9tRohh0gErM";
+  const raw = typeof vid === 'string' ? vid : (vid.youtube_video_id || vid.media_url || '');
+  const clean = raw.trim();
+  if (/^[0-9A-Za-z_-]{11}$/.test(clean)) return clean;
+  try {
+    const match = clean.match(/(?:youtu\.be\/|v\/|u\/\w\/|embed\/|shorts\/|live\/|watch\?v=|&v=)([0-9A-Za-z_-]{11})/);
+    if (match && match[1]) return match[1];
+  } catch (e) {}
+  return vid.youtube_video_id || "9tRohh0gErM";
+}
+
 export default function VideoPlayer({
   video,
   claims = [],
@@ -35,12 +47,13 @@ export default function VideoPlayer({
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration] = useState(video?.duration_seconds || 300);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [playerError, setPlayerError] = useState(null);
 
   const timerIntervalRef = useRef(null);
   const youtubePlayerRef = useRef(null);
   const playerContainerRef = useRef(null);
 
-  const videoId = video?.youtube_video_id || "9tRohh0gErM";
+  const videoId = extractVideoId(video);
 
   // Load YouTube IFrame API script tag once
   useEffect(() => {
@@ -77,10 +90,11 @@ export default function VideoPlayer({
   // Handle video switching and player lifecycle safely
   useEffect(() => {
     if (!videoId) return;
+    setPlayerError(null);
 
-    if (youtubePlayerRef.current && typeof youtubePlayerRef.current.loadVideoById === 'function') {
+    if (youtubePlayerRef.current && typeof youtubePlayerRef.current.cueVideoById === 'function') {
       try {
-        youtubePlayerRef.current.loadVideoById(videoId);
+        youtubePlayerRef.current.cueVideoById(videoId);
         return;
       } catch (e) {
         console.warn("Could not reuse existing player, re-initializing:", e);
@@ -96,17 +110,19 @@ export default function VideoPlayer({
       if (window.YT && window.YT.Player) {
         youtubePlayerRef.current = new window.YT.Player('podlens-yt-player', {
           videoId: videoId,
+          host: 'https://www.youtube-nocookie.com',
           playerVars: {
             enablejsapi: 1,
             autoplay: 0,
             controls: 1,
             modestbranding: 1,
             rel: 0,
-            fs: 0, // Disable YouTube internal fullscreen so PodLens custom fullscreen with overlays works
-            origin: window.location.origin
+            playsinline: 1,
+            fs: 0
           },
           events: {
             onReady: (event) => {
+              setPlayerError(null);
               const dur = event.target.getDuration();
               if (dur && dur > 0) setDuration(dur);
             },
@@ -116,6 +132,10 @@ export default function VideoPlayer({
               } else {
                 setIsPlaying(false);
               }
+            },
+            onError: (event) => {
+              console.warn("YouTube player error:", event.data);
+              setPlayerError(event.data);
             }
           }
         });
@@ -185,6 +205,38 @@ export default function VideoPlayer({
         <div id="podlens-player-wrapper" className="w-full h-full absolute inset-0">
           <div id="podlens-yt-player" className="w-full h-full absolute inset-0" />
         </div>
+
+        {/* Creator Embed Restriction Notice */}
+        {playerError && (
+          <div className="absolute inset-0 z-40 bg-slate-950/90 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center animate-in fade-in duration-300">
+            <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mb-3">
+              <AlertTriangle className="w-6 h-6" />
+            </div>
+            <h4 className="text-sm font-bold text-white mb-1">
+              Playback Restricted by Video Creator
+            </h4>
+            <p className="text-xs text-slate-300 max-w-sm mb-4 leading-relaxed">
+              This video creator has disabled playback in third-party embedded players. PodLens is still analyzing the transcript and claims live in the right panel.
+            </p>
+            <div className="flex items-center space-x-2.5">
+              <a
+                href={`https://www.youtube.com/watch?v=${videoId}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center space-x-1.5 px-3.5 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-lg transition"
+              >
+                <span>Watch on YouTube</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </a>
+              <button
+                onClick={() => setPlayerError(null)}
+                className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* SINGLE CONSOLIDATED COMPACT IN-STREAM HUD (Bottom of Video, Zero Top Clutter) */}
         {/* SINGLE CONSOLIDATED COMPACT IN-STREAM HUD - Only shows for Facts / Claims / Contested assertions, NOT normal speech */}

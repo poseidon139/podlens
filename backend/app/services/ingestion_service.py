@@ -17,12 +17,36 @@ logger = logging.getLogger("podlens.ingestion")
 SESSION_TRANSCRIPTS: Dict[str, List[Dict]] = {}
 
 def extract_youtube_video_id(url: str) -> Optional[str]:
-    """Extract YouTube video ID from various URL patterns"""
+    """Extract YouTube video ID from various URL patterns, shorts, live streams, and query params"""
     if not url:
         return None
+    url = url.strip()
+    if re.match(r'^[0-9A-Za-z_-]{11}$', url):
+        return url
+    
+    try:
+        from urllib.parse import urlparse, parse_qs
+        parsed = urlparse(url)
+        if 'youtu.be' in parsed.netloc:
+            path = parsed.path.lstrip('/')
+            match = re.match(r'^([0-9A-Za-z_-]{11})', path)
+            if match:
+                return match.group(1)
+        if parsed.query:
+            qs = parse_qs(parsed.query)
+            if 'v' in qs and qs['v']:
+                v = qs['v'][0]
+                if re.match(r'^[0-9A-Za-z_-]{11}$', v):
+                    return v
+        match = re.search(r'/(?:embed|v|shorts|live)/([0-9A-Za-z_-]{11})', parsed.path)
+        if match:
+            return match.group(1)
+    except Exception:
+        pass
+
     patterns = [
-        r'(?:v=|\/)([0-9A-Za-z_-]{11}).*',
-        r'(?:embed\/|v\/|youtu\.be\/)([0-9A-Za-z_-]{11})',
+        r'(?:v=|\/)([0-9A-Za-z_-]{11})',
+        r'(?:embed\/|v\/|youtu\.be\/|shorts\/|live\/)([0-9A-Za-z_-]{11})',
         r'^([0-9A-Za-z_-]{11})$'
     ]
     for pattern in patterns:

@@ -11,12 +11,13 @@ export default function IngestionModal({ isOpen, onClose, onIngestSession, sampl
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!url) return;
+    const cleanUrl = url.trim();
     setIsLoading(true);
     try {
       await onIngestSession({
         source_type: 'YOUTUBE',
-        media_url: url,
-        title: title || undefined
+        media_url: cleanUrl,
+        title: title?.trim() || undefined
       });
       setUrl('');
       setTitle('');
