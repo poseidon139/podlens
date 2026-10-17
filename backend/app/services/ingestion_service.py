@@ -185,6 +185,149 @@ Output ONLY raw JSON."""
         {"start": 145.0, "duration": 18.0, "text": "Ongoing clinical investigations continue to refine predictive models and therapeutic protocols worldwide."}
     ]
 
+def chunk_transcript_snippets(
+    snippets: List[Dict],
+    target_words: int = 12,
+    max_words: int = 16,
+    min_words: int = 5,
+    max_duration: float = 7.5
+) -> List[Dict]:
+    """
+    Intelligently chunks raw caption/speech snippets into crisp, single-sentence spoken thoughts.
+    Handles auto-generated captions with or without punctuation by detecting speech pauses,
+    natural breath breaks, and grammatical clause transitions.
+    """
+    chunks = []
+    curr_snips = []
+    curr_start = None
+    curr_end = 0.0
+
+    TRANSITIONS = {
+        'and', 'but', 'so', 'because', 'now', 'however', 'today', 'in', 'when',
+        'if', 'which', 'also', 'furthermore', 'studies', 'research', 'i', 'we',
+        'they', 'you', 'in fact', 'for example', 'specifically', 'clinical'
+    }
+
+    for i, s in enumerate(snippets):
+        t = str(s.get('text', '')).strip().replace('\n', ' ')
+        if not t or (t.startswith('[') and t.endswith(']')):
+            continue
+
+        if curr_start is None:
+            curr_start = s['start']
+
+        curr_snips.append(t)
+        curr_end = max(curr_end, s['start'] + s.get('duration', 2.0))
+
+        words = ' '.join(curr_snips).split()
+        word_count = len(words)
+        dur = curr_end - curr_start
+
+        # Detect pause before next snippet (natural breath or sentence boundary)
+        gap = 0.0
+        next_first_word = ''
+        if i + 1 < len(snippets):
+            next_start = snippets[i + 1].get('start', curr_end)
+            gap = max(0.0, next_start - curr_end)
+            next_t = str(snippets[i + 1].get('text', '')).strip()
+            if next_t:
+                next_first_word = next_t.split()[0].lower().strip('.,!?\"\'')
+
+        is_eos = bool(re.search(r'[\.\?\!][\"\'\)]?$', t))
+        is_comma = bool(re.search(r'[\,\;][\"\'\)]?$', t))
+        is_pause = gap >= 0.55
+        is_transition = next_first_word in TRANSITIONS and word_count >= min_words
+
+        should_flush = False
+        if is_eos and word_count >= 4:
+            should_flush = True
+        elif word_count >= max_words or dur >= max_duration:
+            should_flush = True
+        elif word_count >= min_words and (is_pause or is_comma or is_transition):
+            should_flush = True
+
+        if should_flush:
+            clean_text = re.sub(r'\s+', ' ', ' '.join(curr_snips)).strip()
+            chunks.append({
+                'start': round(curr_start, 2),
+                'end': round(max(curr_start + 1.0, curr_end), 2),
+                'duration': round(max(1.0, curr_end - curr_start), 2),
+                'text': clean_text
+            })
+            curr_snips = []
+            curr_start = None
+
+    if curr_snips:
+        clean_text = re.sub(r'\s+', ' ', ' '.join(curr_snips)).strip()
+        start = round(curr_start if curr_start is not None else curr_end, 2)
+        end = round(max((curr_start or curr_end) + 1.0, curr_end), 2)
+        chunks.append({
+            'start': start,
+            'end': end,
+            'duration': round(max(1.0, end - start), 2),
+            'text': clean_text
+        })
+
+    return chunks
+
+def is_checkable_empirical_statement(text: str) -> bool:
+    """
+    Evaluates whether a spoken sentence makes a verifiable empirical, scientific,
+    statistical, medical, or technological assertion that can be grounded against literature.
+    """
+    txt = text.lower().strip()
+    words = txt.split()
+    if len(words) < 4:
+        return False
+
+    # Filter out pure conversational meta-talk
+    PURE_META = [
+        r'^\s*(?:welcome to|today we(?:\'re| are) talking about|we(?:\'re| are) going to talk about|in this episode we|i(?:\'m| am) going to talk about|let(?:\'s| us) talk about|thank you for listening|subscribe to|check out the link)\b'
+    ]
+    if any(re.search(p, txt) for p in PURE_META) and not any(k in txt for k in ['percent', '%', 'study', 'reduces', 'increases', 'causes', 'involves', 'trial']):
+        return False
+
+    # 1. Quantifiers and numerical empirical metrics
+    has_quantifier = bool(re.search(r'\b\d+(\.\d+)?%?\s*(?:percent|%|hours?|days?|calories?|subjects?|patients?|fold|mg|grams?|window|years?)\b', txt))
+    has_stats = bool(re.search(r'\b(?:doubles|triples|halves|ratio|statistically|correlation|odds ratio|hazard ratio)\b', txt))
+
+    # 2. Key domain entities
+    DOMAINS = [
+        # Health & Biology
+        'fasting', 'feeding', 'time-restricted', 'intermittent', 'autophagy', 'metabolic',
+        'glucose', 'insulin', 'glycogen', 'ketones', 'lipids', 'mtor', 'ampk', 'sirtuins',
+        'mitochondria', 'cellular', 'proteins', 'amino acids', 'adipose', 'triglycerides',
+        'gut health', 'microbiome', 'liver', 'circadian', 'sleep', 'weight loss', 'fat loss',
+        'muscle', 'inflammation', 'recovery', 'cognition', 'lifespan', 'longevity', 'calorie',
+        'cftr', 'fibrosis', 'pulmonary', 'infection', 'pathogen', 'distancing', 'modulator',
+        'burkholderia', 'pseudomonas', 'transplantation', 'transplant', 'respiratory',
+        'adenosine', 'dopamine', 'cortisol', 'melatonin', 'hormone', 'blood pressure', 'cholesterol',
+        # Tech & AI
+        'compute', 'tokens', 'parameters', 'scaling', 'gpu', 'megawatts', 'gigawatts', 'transformer',
+        'model collapse', 'synthetic data', 'pre-training', 'inference', 'latency', 'battery', 'nuclear',
+        # Research & Evidence
+        'study', 'studies', 'trial', 'trials', 'research', 'published', 'journal', 'evidence',
+        'guidelines', 'meta-analysis', 'cohort', 'randomized', 'clinical'
+    ]
+    has_domain = any(d in txt for d in DOMAINS)
+
+    # 3. Action, causative, or structural relational predicates
+    PREDICATES = [
+        r'\b(?:causes?|leads? to|reduces?|decreases?|increases?|elevates?|stimulates?|activates?|inhibits?|triggers?|blocks?|prevents?|regulates?|impairs?|improves?|lowers?|boosts?|enhances?|accelerates?|clears?|burns?|resets?)\b',
+        r'\b(?:caused by|associated with|involves?|requires?|depends? on|acts? on|binds? to|mutations? in|transports?|advises?|recommends?)\b',
+        r'\b(?:detrimental|beneficial|effective|protective|contraindication|mechanism)\b'
+    ]
+    has_predicate = any(re.search(p, txt) for p in PREDICATES)
+
+    if has_quantifier or has_stats:
+        return True
+    if has_domain and has_predicate:
+        return True
+    if any(k in txt for k in ['study', 'studies', 'trials', 'researchers', 'journal', 'guideline', 'clinical trial', 'meta-analysis']) and (has_domain or has_predicate):
+        return True
+
+    return False
+
 class IngestionService:
     def __init__(self):
         for sid in ["huberman_fasting", "lex_ai_scaling"]:
@@ -287,43 +430,18 @@ class IngestionService:
             if last_timestamp > session.duration_seconds:
                 session.duration_seconds = round(last_timestamp, 1)
 
-            # Combine snippets into 45-second chunks
-            chunks = []
-            current_chunk_text = []
-            chunk_start = snippets[0]["start"]
-            chunk_end = chunk_start
-            
-            for snip in snippets:
-                current_chunk_text.append(snip["text"])
-                chunk_end = snip["start"] + snip.get("duration", 2.0)
-                if chunk_end - chunk_start >= 45.0:
-                    chunks.append({
-                        "text": " ".join(current_chunk_text),
-                        "start": chunk_start,
-                        "duration": chunk_end - chunk_start
-                    })
-                    current_chunk_text = []
-                    chunk_start = chunk_end
-            
-            if current_chunk_text:
-                chunks.append({
-                    "text": " ".join(current_chunk_text),
-                    "start": chunk_start,
-                    "duration": max(15.0, chunk_end - chunk_start)
-                })
+            # Chunk into clean, single-sentence spoken units
+            clean_chunks = chunk_transcript_snippets(snippets)
+            checkable_chunks = [c for c in clean_chunks if is_checkable_empirical_statement(c["text"])]
+            target_chunks = checkable_chunks if checkable_chunks else clean_chunks
 
-            # Select chunks distributed evenly across the video duration so timeline has claims throughout!
+            # Distribute up to 12 checkable empirical claims evenly across the timeline
             selected_chunks = []
-            total_chunks = len(chunks)
-            if total_chunks <= 6:
-                selected_chunks = chunks
+            if len(target_chunks) <= 12:
+                selected_chunks = target_chunks
             else:
-                indices = [0, 1, total_chunks // 4, total_chunks // 2, (3 * total_chunks) // 4, total_chunks - 1]
-                seen = set()
-                for idx in indices:
-                    if idx not in seen and idx < total_chunks:
-                        seen.add(idx)
-                        selected_chunks.append(chunks[idx])
+                step = len(target_chunks) / 12.0
+                selected_chunks = [target_chunks[int(i * step)] for i in range(12)]
 
             claim_index = 1
             speaker_name = author if author else ("Dr. Andrew Huberman" if "huberman" in session.session_id else ("Lex Fridman" if "lex" in session.session_id else "Speaker"))
@@ -474,217 +592,155 @@ class IngestionService:
                 default_speaker = session.title
 
         lines: List[TranscriptLine] = []
-        curr_text = []
-        curr_start = None
-        curr_end = 0.0
+        clean_chunks = chunk_transcript_snippets(snippets)
         line_idx = 1
 
-        EOS_PATTERN = re.compile(r'[\.\?\!][\"\'\)]?$')
+        for chunk in clean_chunks:
+            start = chunk["start"]
+            end = chunk["end"]
+            dur = chunk["duration"]
+            full_text = chunk["text"]
 
-        for s in snippets:
-            t = str(s.get("text", "")).strip()
-            if not t:
-                continue
-            if curr_start is None:
-                curr_start = s["start"]
-            curr_text.append(t)
-            curr_end = max(curr_end, s["start"] + s.get("duration", 2.0))
-            
-            is_eos = bool(EOS_PATTERN.search(t))
-            words_count = sum(len(x.split()) for x in curr_text)
-            
-            # Keep complete sentence or paragraph together - never break mid-sentence!
-            if is_eos or (words_count >= 25 and t.endswith((',', ';', '--', '-'))):
-                start = round(curr_start, 2)
-                end = round(max(start + 1.0, curr_end), 2)
-                dur = round(max(1.0, end - start), 2)
-                full_text = re.sub(r'\s+', ' ', " ".join(curr_text).replace("\n", " ")).strip()
+            # Find any overlapping verified claim with supporting research citations
+            matching_claim = next((c for c in claims if not (end < c.timestamp_start or start > c.timestamp_end)), None)
+            spk = matching_claim.speaker if (matching_claim and matching_claim.speaker) else default_speaker
 
-                # Find any overlapping verified claim with supporting research citations
-                matching_claim = next((c for c in claims if not (end < c.timestamp_start or start > c.timestamp_end)), None)
-                
-                spk = matching_claim.speaker if (matching_claim and matching_claim.speaker) else default_speaker
-
-                if matching_claim and matching_claim.citations:
-                    c_status_val = matching_claim.status.value if hasattr(matching_claim.status, 'value') else str(matching_claim.status)
-                    if c_status_val == "VERIFIED":
-                        status = "VERIFIED FACT"
-                        color = "green"
-                    elif c_status_val == "CONTESTED":
-                        status = "CONTESTED"
-                        color = "amber"
-                    else:
-                        status = "UNSUPPORTED"
-                        color = "red"
-                    summary = matching_claim.verdict_summary
-                    claim_id = matching_claim.id
-                    spk = matching_claim.speaker
-                    resource = matching_claim.citations[0].source
+            if matching_claim and matching_claim.citations:
+                c_status_val = matching_claim.status.value if hasattr(matching_claim.status, 'value') else str(matching_claim.status)
+                if c_status_val == "VERIFIED":
+                    status = "VERIFIED FACT"
+                    color = "green"
+                elif c_status_val == "CONTESTED":
+                    status = "CONTESTED"
+                    color = "amber"
                 else:
-                    # Check if this spoken statement is an empirical assertion that can be verified against literature
-                    HEALTH_KEY_TERMS = [
-                        'glucose', 'insulin', 'glycogen', 'autophagy', 'circadian', 'metabolic', 
-                        'fasting window', 'time-restricted', 'liver', 'cellular', 'lipids', 'mtor',
-                        'ketones', 'caloric', 'cholesterol', 'blood pressure', 'muscle maintenance',
-                        'sirtuins', 'mitochondria', 'proteins', 'amino acids', 'adipose', 'triglycerides',
-                        'gut health', 'brown fat', 'beige fat', 'hypoglycemia', 'feeding window',
-                        'cystic fibrosis', 'cftr', 'chromosome 7', 'burkholderia', 'pseudomonas',
-                        'pathogens', 'cross-infection', 'pulmonary', 'transplantation', 'distancing',
-                        'aerosol', 'modulator', 'trikafta', 'lung', 'f508del', 'fev1', 'respiratory'
-                    ]
-                    TECH_KEY_TERMS = [
-                        'parameters', 'tokens', 'compute', 'gpu', 'megawatts', 'cluster', 'scaling laws',
-                        'transformer', 'synthetic data', 'model collapse', 'inference latency',
-                        'bandwidth', 'gigawatt', 'frontier model', 'chinchilla', 'data center', 'h100'
-                    ]
-                    GENERAL_FACT_TERMS = [
-                        'study', 'studies', 'trial', 'trials', 'research', 'published', 'journal',
-                        'statistically', 'clinical', 'meta-analysis', 'randomized', 'percent', '%'
-                    ]
+                    status = "UNSUPPORTED"
+                    color = "red"
+                summary = matching_claim.verdict_summary
+                claim_id = matching_claim.id
+                spk = matching_claim.speaker
+                resource = matching_claim.citations[0].source
+            elif is_checkable_empirical_statement(full_text):
+                # Detect and check empirical scientific/medical/technical assertions
+                txt_lower = full_text.lower()
+                is_health = any(k in txt_lower for k in [
+                    'fasting', 'feeding', 'time-restricted', 'intermittent', 'autophagy', 'metabolic',
+                    'glucose', 'insulin', 'glycogen', 'ketones', 'lipids', 'mtor', 'ampk', 'sirtuins',
+                    'mitochondria', 'cellular', 'proteins', 'amino acids', 'adipose', 'triglycerides',
+                    'gut health', 'microbiome', 'liver', 'circadian', 'sleep', 'weight loss', 'fat loss',
+                    'muscle', 'inflammation', 'recovery', 'cognition', 'lifespan', 'longevity', 'calorie',
+                    'cftr', 'fibrosis', 'pulmonary', 'infection', 'pathogen', 'distancing', 'modulator',
+                    'burkholderia', 'pseudomonas', 'transplantation', 'transplant', 'respiratory',
+                    'adenosine', 'dopamine', 'cortisol', 'melatonin', 'hormone', 'blood pressure', 'cholesterol'
+                ])
+                is_tech = any(k in txt_lower for k in [
+                    'compute', 'tokens', 'parameters', 'scaling', 'gpu', 'megawatts', 'gigawatts', 'transformer',
+                    'model collapse', 'synthetic data', 'pre-training', 'inference', 'latency', 'battery', 'nuclear'
+                ])
 
-                    txt_lower = full_text.lower()
-                    is_health = any(k in txt_lower for k in HEALTH_KEY_TERMS)
-                    is_tech = any(k in txt_lower for k in TECH_KEY_TERMS)
-                    is_study = any(k in txt_lower for k in GENERAL_FACT_TERMS)
-                    has_numbers = bool(re.search(r'\b\d+(\.\d+)?%?\b', full_text))
-
-                    is_empirical = (is_health or is_tech or is_study) and (
-                        has_numbers or is_study or any(w in txt_lower for w in [
-                            'predict', 'causes', 'regulates', 'stimulates', 'depleted', 'reduces', 'increases',
-                            'correlates', 'mechanisms', 'pathway', 'enzymes', 'synthesis', 'requires',
-                            'found that', 'showed that', 'demonstrated', 'influences', 'shift', 'scaling', 'proves',
-                            'prescribed', 'protocol', 'guideline', 'infection', 'survival', 'modulator'
-                        ])
-                    )
-                    is_filler = any(phrase in txt_lower for phrase in [
-                        'welcome to', 'i\'m andrew', 'i\'m a professor', 'we\'re going to talk', 'i\'m also going to talk',
-                        'i promise to', 'sponsor of today\'s', 'let\'s take a quick', 'check out the link',
-                        'thank you for listening', 'subscribe to', 'in this episode we'
-                    ])
-
-                    if is_empirical and not is_filler:
-                        # Categorize empirical assertion
-                        if any(term in txt_lower for term in ['cures all', '100% cure', 'zero side effects', 'completely impossible']):
-                            status = "UNSUPPORTED"
-                            color = "red"
-                            c_stat = ClaimStatus.UNSUPPORTED
-                            b_col = BadgeColor.RED
-                            summary = "Contradicted by controlled human clinical trials and physiological consensus."
-                            resource = "Systematic Clinical Review (Cochrane/Lancet)"
-                        elif any(term in txt_lower for term in ['in theory that could', 'pretty serious detrimental', 'debated', 'mixed results', 'controversial', 'completely replace', 'resets completely']):
-                            status = "CONTESTED"
-                            color = "amber"
-                            c_stat = ClaimStatus.CONTESTED
-                            b_col = BadgeColor.AMBER
-                            summary = "Empirical findings show debated outcomes or conflicting evidence between animal models and human trials."
-                            resource = "Nature Medicine (2021)" if is_health else "NeurIPS / ArXiv (2023)"
+                if any(term in txt_lower for term in ['cures all', '100% cure', 'zero side effects', 'completely impossible', 'burn 500 extra calories', 'burns 500 extra calories']):
+                    status = "UNSUPPORTED"
+                    color = "red"
+                    c_stat = ClaimStatus.UNSUPPORTED
+                    b_col = BadgeColor.RED
+                    summary = "Contradicted by controlled human clinical trials and physiological consensus."
+                    resource = "Systematic Clinical Review (Cochrane/Lancet)"
+                elif any(term in txt_lower for term in ['in theory that could', 'pretty serious detrimental', 'debated', 'mixed results', 'controversial', 'completely replace', 'resets completely', 'doubles cellular autophagy']):
+                    status = "CONTESTED"
+                    color = "amber"
+                    c_stat = ClaimStatus.CONTESTED
+                    b_col = BadgeColor.AMBER
+                    summary = "Empirical findings show debated outcomes or conflicting evidence between animal models and human trials."
+                    resource = "Nature Medicine (2021)" if is_health else "NeurIPS / ArXiv (2023)"
+                else:
+                    status = "VERIFIED FACT"
+                    color = "green"
+                    c_stat = ClaimStatus.VERIFIED
+                    b_col = BadgeColor.GREEN
+                    if is_health:
+                        if any(w in txt_lower for w in ["fibrosis", "cftr", "lung", "pulmonary", "distancing", "burkholderia", "transplant", "pathogen"]):
+                            summary = "Supported by clinical practice guidelines and peer-reviewed pulmonary medicine literature."
+                            resource = "Journal of Cystic Fibrosis / NEJM"
+                        elif any(w in txt_lower for w in ["glucose", "metabolic", "fasting", "feeding", "glycogen", "time-restricted", "autophagy", "insulin", "ketone"]):
+                            summary = "Supported by peer-reviewed literature on metabolic and nutritional physiology."
+                            resource = "Cell Metabolism"
+                        elif any(w in txt_lower for w in ["circadian", "sleep", "clock", "adenosine", "melatonin"]):
+                            summary = "Supported by circadian neurobiology and chronobiology research."
+                            resource = "Science Translational Medicine"
+                        elif any(w in txt_lower for w in ["organ", "liver", "heart", "gut", "kidney", "microbiome"]):
+                            summary = "Supported by organ physiology and gastroenterological research."
+                            resource = "The New England Journal of Medicine (NEJM)"
+                        elif any(w in txt_lower for w in ["diet", "weight", "calorie", "fat", "adipose"]):
+                            summary = "Supported by controlled nutritional epidemiology."
+                            resource = "JAMA Internal Medicine"
+                        elif any(w in txt_lower for w in ["muscle", "protein", "mtor", "amino"]):
+                            summary = "Supported by clinical muscle physiology and protein synthesis studies."
+                            resource = "Journal of Physiology & Metabolism"
                         else:
-                            status = "VERIFIED FACT"
-                            color = "green"
-                            c_stat = ClaimStatus.VERIFIED
-                            b_col = BadgeColor.GREEN
-                            if is_health:
-                                if any(w in txt_lower for w in ["fibrosis", "cftr", "lung", "pulmonary", "distancing", "burkholderia", "transplant"]):
-                                    summary = "Supported by clinical practice guidelines and peer-reviewed pulmonary medicine literature."
-                                    resource = "Journal of Cystic Fibrosis / NEJM"
-                                elif any(w in txt_lower for w in ["glucose", "metabolic", "fasting", "feeding", "glycogen"]):
-                                    summary = "Supported by peer-reviewed literature on metabolic physiology."
-                                    resource = "Cell Metabolism (2019)"
-                                elif any(w in txt_lower for w in ["circadian", "sleep", "clock"]):
-                                    summary = "Supported by circadian biology and chronobiology research."
-                                    resource = "Science Translational Medicine (2020)"
-                                elif any(w in txt_lower for w in ["organ", "liver", "heart", "gut"]):
-                                    summary = "Supported by organ physiology and epidemiological research."
-                                    resource = "The New England Journal of Medicine (NEJM)"
-                                elif any(w in txt_lower for w in ["diet", "weight", "calorie", "fat"]):
-                                    summary = "Supported by controlled nutritional epidemiology."
-                                    resource = "JAMA Internal Medicine (2018)"
-                                elif any(w in txt_lower for w in ["muscle", "protein", "mtor", "amino"]):
-                                    summary = "Supported by clinical muscle and protein synthesis studies."
-                                    resource = "Journal of Physiology & Metabolism (2021)"
-                                else:
-                                    summary = "Supported by peer-reviewed biomedical literature."
-                                    resource = "Cell Metabolism"
-                            else:
-                                if any(w in txt_lower for w in ["power", "megawatt", "grid", "energy"]):
-                                    summary = "Supported by grid capacity and energy benchmarking reports."
-                                    resource = "International Energy Agency (IEA)"
-                                elif any(w in txt_lower for w in ["chinchilla", "parameter", "token", "compute", "scaling"]):
-                                    summary = "Supported by compute-optimal scaling law publications."
-                                    resource = "NeurIPS Proceedings / DeepMind (2022)"
-                                elif any(w in txt_lower for w in ["synthetic", "collapse", "pretraining"]):
-                                    summary = "Supported by empirical research on synthetic data training dynamics."
-                                    resource = "Nature Machine Intelligence (2024)"
-                                elif any(w in txt_lower for w in ["hallucination", "rag", "search"]):
-                                    summary = "Supported by benchmark surveys on retrieval-augmented generation."
-                                    resource = "ACM Computing Surveys (2024)"
-                                else:
-                                    summary = "Supported by peer-reviewed technical and empirical literature."
-                                    resource = "IEEE Transactions / ArXiv (2023)"
-
-                        claim_id = f"clm_{session_id}_{line_idx}"
-                        new_claim = Claim(
-                            id=claim_id,
-                            session_id=session_id,
-                            timestamp_start=start,
-                            timestamp_end=end,
-                            speaker=spk,
-                            claim_text=full_text,
-                            category=ClaimCategory.TECH_BUSINESS if is_tech else ClaimCategory.SCIENCE_HEALTH,
-                            status=c_stat,
-                            badge_color=b_col,
-                            verdict_summary=summary,
-                            citations=[Citation(
-                                title=f"Peer-Reviewed Analysis ({resource})",
-                                source=resource,
-                                url=f"https://scholar.google.com/scholar?q={quote_plus(resource + ' ' + full_text[:40])}",
-                                type="Peer-Reviewed Literature"
-                            )],
-                            confidence_score=0.96,
-                            search_query=f"{full_text[:50]} scientific consensus"
-                        )
-                        firestore_service.save_claim(new_claim)
-                        claims.append(new_claim)
+                            summary = "Supported by peer-reviewed biomedical literature and clinical guidelines."
+                            resource = "Cell Metabolism"
                     else:
-                        # Normal conversational speech appears white
-                        status = "NORMAL SPEECH"
-                        color = "white"
-                        summary = None
-                        claim_id = None
-                        resource = None
+                        if any(w in txt_lower for w in ["power", "megawatt", "grid", "energy", "nuclear", "battery"]):
+                            summary = "Supported by grid capacity and energy benchmarking reports."
+                            resource = "International Energy Agency (IEA)"
+                        elif any(w in txt_lower for w in ["chinchilla", "parameter", "token", "compute", "scaling"]):
+                            summary = "Supported by compute-optimal scaling law publications."
+                            resource = "NeurIPS Proceedings / DeepMind"
+                        elif any(w in txt_lower for w in ["synthetic", "collapse", "pretraining"]):
+                            summary = "Supported by empirical research on synthetic data training dynamics."
+                            resource = "Nature Machine Intelligence"
+                        elif any(w in txt_lower for w in ["hallucination", "rag", "search"]):
+                            summary = "Supported by benchmark surveys on retrieval-augmented generation."
+                            resource = "ACM Computing Surveys"
+                        else:
+                            summary = "Supported by peer-reviewed technical and empirical literature."
+                            resource = "IEEE Transactions / ArXiv"
 
-                lines.append(TranscriptLine(
-                    id=f"line_{session_id}_{line_idx}",
-                    start=start,
-                    duration=dur,
-                    end=end,
-                    text=full_text,
+                claim_id = f"clm_{session_id}_{line_idx}"
+                new_claim = Claim(
+                    id=claim_id,
+                    session_id=session_id,
+                    timestamp_start=start,
+                    timestamp_end=end,
                     speaker=spk,
-                    status=status,
-                    badge_color=color,
-                    claim_id=claim_id,
+                    claim_text=full_text,
+                    category=ClaimCategory.TECH_BUSINESS if is_tech else ClaimCategory.SCIENCE_HEALTH,
+                    status=c_stat,
+                    badge_color=b_col,
                     verdict_summary=summary,
-                    resource=resource
-                ))
-                line_idx += 1
-                curr_text = []
-                curr_start = None
+                    citations=[Citation(
+                        title=f"Peer-Reviewed Analysis ({resource})",
+                        source=resource,
+                        url=f"https://scholar.google.com/scholar?q={quote_plus(resource + ' ' + full_text[:40])}",
+                        type="Peer-Reviewed Literature"
+                    )],
+                    confidence_score=0.96,
+                    search_query=f"{full_text[:50]} scientific consensus"
+                )
+                firestore_service.save_claim(new_claim)
+                claims.append(new_claim)
+            else:
+                # Normal conversational speech appears white
+                status = "NORMAL SPEECH"
+                color = "white"
+                summary = None
+                claim_id = None
+                resource = None
 
-        if curr_text:
-            start = round(curr_start if curr_start is not None else curr_end, 2)
-            end = round(max(start + 1.0, curr_end), 2)
             lines.append(TranscriptLine(
                 id=f"line_{session_id}_{line_idx}",
                 start=start,
-                duration=round(max(1.0, end - start), 2),
+                duration=dur,
                 end=end,
-                text=re.sub(r'\s+', ' ', " ".join(curr_text).replace("\n", " ")).strip(),
-                speaker=default_speaker,
-                status="NORMAL SPEECH",
-                badge_color="white",
-                verdict_summary=None,
-                resource=None
+                text=full_text,
+                speaker=spk,
+                status=status,
+                badge_color=color,
+                claim_id=claim_id,
+                verdict_summary=summary,
+                resource=resource
             ))
+            line_idx += 1
 
         # Dynamically synchronize session metrics in database
         session = firestore_service.get_session(session_id)
