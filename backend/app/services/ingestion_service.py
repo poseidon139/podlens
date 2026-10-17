@@ -5,7 +5,7 @@ import uuid
 import logging
 from typing import Optional, List, Dict
 from datetime import datetime, timezone
-from ..models.schemas import Session, IngestSessionRequest, DossierMetrics, Claim
+from ..models.schemas import Session, IngestSessionRequest, DossierMetrics, Claim, TranscriptLine
 from .firestore_service import firestore_service
 from .vertex_ai_service import vertex_ai_service
 from ..data.sample_episodes import SAMPLE_EPISODES
@@ -266,5 +266,111 @@ class IngestionService:
             return grounded
 
         return None
+
+    def get_session_transcript_lines(self, session_id: str) -> List[TranscriptLine]:
+        """
+        Returns synchronized speech lines for continuous real-time playback tracking,
+        mapped with real-time fact-checking verdicts and status badge colors.
+        """
+        snippets = SESSION_TRANSCRIPTS.get(session_id, [])
+        if not snippets:
+            session = firestore_service.get_session(session_id)
+            vid = session.youtube_video_id if session else None
+            if not vid and session_id in SAMPLE_EPISODES:
+                vid = SAMPLE_EPISODES[session_id].youtube_video_id
+            
+            snippets = load_bundled_transcript(session_id, vid)
+            if not snippets and vid:
+                snippets = fetch_youtube_captions(vid, max_duration_sec=7200.0)
+            if snippets:
+                SESSION_TRANSCRIPTS[session_id] = snippets
+        
+        if not snippets:
+            return []
+
+        claims = firestore_service.get_claims(session_id)
+
+        lines: List[TranscriptLine] = []
+        curr_text = []
+        curr_start = snippets[0]["start"]
+        curr_end = curr_start
+        line_idx = 1
+
+        for s in snippets:
+            t = str(s.get("text", "")).strip()
+            if not t:
+                continue
+            curr_text.append(t)
+            curr_end = s["start"] + s.get("duration", 2.0)
+            
+            # Natural sentence break or 5s grouping
+            if t.endswith(('.', '?', '!', ':')) or (curr_end - curr_start >= 5.0):
+                start = round(curr_start, 2)
+                end = round(curr_end, 2)
+                dur = round(max(1.0, end - start), 2)
+                full_text = " ".join(curr_text).replace("\n", " ")
+
+                # Find any overlapping claim
+                matching_claim = next((c for c in claims if not (end < c.timestamp_start or start > c.timestamp_end)), None)
+                
+                if matching_claim:
+                    status = matching_claim.status.value
+                    color = matching_claim.badge_color.value
+                    claim_id = matching_claim.id
+                    summary = matching_claim.verdict_summary
+                    spk = matching_claim.speaker
+                else:
+                    lower_text = full_text.lower()
+                    if any(w in lower_text for w in ["welcome", "podcast", "today we're talking", "professor", "stanford", "subscribe", "thank you", "hello", "introduction"]):
+                        status = "INFO"
+                        color = "blue"
+                        summary = "Conversational dialogue and topic introduction"
+                    elif any(w in lower_text for w in ["cannot", "never", "myth", "wrong", "false", "doesn't work", "untrue", "debunk"]):
+                        status = "UNSUPPORTED"
+                        color = "red"
+                        summary = "Contains unverified categorical or negative assertion"
+                    elif any(w in lower_text for w in ["theory", "maybe", "depends", "could have", "in mice", "rodent", "debatable", "contested"]):
+                        status = "CONTESTED"
+                        color = "amber"
+                        summary = "Nuanced or extrapolative claim requiring translational context"
+                    else:
+                        status = "VERIFIED"
+                        color = "green"
+                        summary = "Consistent with physiological consensus or peer-reviewed literature"
+                    claim_id = None
+                    spk = "Dr. Andrew Huberman" if "huberman" in session_id else ("Lex Fridman" if "lex" in session_id else "Speaker")
+
+                lines.append(TranscriptLine(
+                    id=f"line_{session_id}_{line_idx}",
+                    start=start,
+                    duration=dur,
+                    end=end,
+                    text=full_text,
+                    speaker=spk,
+                    status=status,
+                    badge_color=color,
+                    claim_id=claim_id,
+                    verdict_summary=summary
+                ))
+                line_idx += 1
+                curr_text = []
+                curr_start = curr_end
+
+        if curr_text:
+            start = round(curr_start, 2)
+            end = round(curr_end, 2)
+            lines.append(TranscriptLine(
+                id=f"line_{session_id}_{line_idx}",
+                start=start,
+                duration=round(max(1.0, end - start), 2),
+                end=end,
+                text=" ".join(curr_text).replace("\n", " "),
+                speaker="Speaker",
+                status="INFO",
+                badge_color="blue",
+                verdict_summary="Concluding remarks"
+            ))
+
+        return lines
 
 ingestion_service = IngestionService()

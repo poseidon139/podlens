@@ -84,3 +84,16 @@ class VerifyTextRequest(BaseModel):
 class PlaybackTickMessage(BaseModel):
     type: str = "PLAYBACK_TICK"
     current_time_sec: float
+
+class TranscriptLine(BaseModel):
+    id: str
+    start: float
+    duration: float
+    end: float
+    text: str
+    speaker: str = "Speaker"
+    status: str = "VERIFIED"
+    badge_color: str = "green"
+    claim_id: Optional[str] = None
+    verdict_summary: Optional[str] = None
+

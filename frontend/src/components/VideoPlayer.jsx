@@ -14,6 +14,7 @@ export default function VideoPlayer({
   claims = [],
   currentTime = 0,
   activeClaim = null,
+  currentSpeechLine = null,
   onTimeUpdate,
   onSeek,
   onAnalyzeSegment,
@@ -189,6 +190,60 @@ export default function VideoPlayer({
                 <span>Ground Speech @ {formatTime(currentTime)}</span>
               </button>
             ) : null}
+          </div>
+        )}
+
+        {/* Continuous In-Stream Live Speech Subtitle HUD with Real-Time Color Shifting Icon */}
+        {currentSpeechLine && (
+          <div className="absolute bottom-3 left-3 right-3 sm:left-6 sm:right-6 z-20 pointer-events-none flex justify-center animate-in fade-in slide-in-from-bottom-2 duration-200">
+            <div className={`pointer-events-auto max-w-2xl w-full px-4 py-2.5 rounded-2xl backdrop-blur-xl border shadow-2xl transition-all duration-300 flex items-center space-x-3.5 ${
+              currentSpeechLine.badge_color === 'green'
+                ? 'bg-emerald-950/90 border-emerald-500/60 text-emerald-100 shadow-emerald-950/60 ring-1 ring-emerald-500/30'
+                : currentSpeechLine.badge_color === 'amber'
+                ? 'bg-amber-950/90 border-amber-500/60 text-amber-100 shadow-amber-950/60 ring-1 ring-amber-500/30'
+                : currentSpeechLine.badge_color === 'red'
+                ? 'bg-rose-950/90 border-rose-500/60 text-rose-100 shadow-rose-950/60 ring-1 ring-rose-500/30'
+                : 'bg-slate-900/90 border-slate-700/70 text-slate-100 shadow-slate-950/60'
+            }`}>
+              {/* Live Small Icon that changes color in real-time */}
+              <div className={`p-2 rounded-xl border flex items-center justify-center shrink-0 transition-all duration-300 ${
+                currentSpeechLine.badge_color === 'green'
+                  ? 'bg-emerald-500/25 border-emerald-400/60 text-emerald-300 shadow-sm shadow-emerald-500/40'
+                  : currentSpeechLine.badge_color === 'amber'
+                  ? 'bg-amber-500/25 border-amber-400/60 text-amber-300 shadow-sm shadow-amber-500/40'
+                  : currentSpeechLine.badge_color === 'red'
+                  ? 'bg-rose-500/25 border-rose-400/60 text-rose-300 shadow-sm shadow-rose-500/40'
+                  : 'bg-indigo-500/25 border-indigo-400/60 text-indigo-300 shadow-sm shadow-indigo-500/40'
+              }`}>
+                {currentSpeechLine.badge_color === 'green' && <ShieldCheck className="w-5 h-5 animate-pulse" />}
+                {currentSpeechLine.badge_color === 'amber' && <AlertTriangle className="w-5 h-5 animate-pulse" />}
+                {currentSpeechLine.badge_color === 'red' && <XCircle className="w-5 h-5 animate-pulse" />}
+                {currentSpeechLine.badge_color === 'blue' && <Sparkles className="w-5 h-5 animate-pulse" />}
+              </div>
+
+              {/* Spoken sentence and live status tag */}
+              <div className="flex flex-col min-w-0 flex-1">
+                <div className="flex items-center space-x-2 mb-0.5">
+                  <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded font-mono ${
+                    currentSpeechLine.badge_color === 'green' ? 'bg-emerald-500/30 text-emerald-200 border border-emerald-500/40' :
+                    currentSpeechLine.badge_color === 'amber' ? 'bg-amber-500/30 text-amber-200 border border-amber-500/40' :
+                    currentSpeechLine.badge_color === 'red' ? 'bg-rose-500/30 text-rose-200 border border-rose-500/40' :
+                    'bg-indigo-500/30 text-indigo-200 border border-indigo-500/40'
+                  }`}>
+                    {currentSpeechLine.status || 'VERIFIED'}
+                  </span>
+                  <span className="text-[11px] font-semibold text-slate-200 truncate">
+                    {currentSpeechLine.speaker || 'Speaker'}
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-mono ml-auto">
+                    {formatTime(currentSpeechLine.start)}
+                  </span>
+                </div>
+                <p className="text-xs sm:text-sm font-medium leading-snug line-clamp-2 text-white drop-shadow-sm">
+                  "{currentSpeechLine.text}"
+                </p>
+              </div>
+            </div>
           </div>
         )}
       </div>

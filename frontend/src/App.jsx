@@ -5,13 +5,14 @@ import ContextFeed from './components/ContextFeed';
 import DossierModal from './components/DossierModal';
 import IngestionModal from './components/IngestionModal';
 import LiveVerifyModal from './components/LiveVerifyModal';
-import { fetchSessions, fetchSession, fetchClaims, createSession, analyzeSegment } from './services/api';
+import { fetchSessions, fetchSession, fetchClaims, createSession, analyzeSegment, fetchTranscript } from './services/api';
 
 export default function App() {
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState('huberman_fasting');
   const [currentSession, setCurrentSession] = useState(null);
   const [claims, setClaims] = useState([]);
+  const [transcriptLines, setTranscriptLines] = useState([]);
   const [currentTime, setCurrentTime] = useState(0);
   const [activeClaimId, setActiveClaimId] = useState(null);
   const [isWsConnected, setIsWsConnected] = useState(false);
@@ -35,12 +36,13 @@ export default function App() {
       .catch((err) => console.error('Failed to load sessions:', err));
   }, []);
 
-  // 2. When Active Session changes, fetch session details and its claims
+  // 2. When Active Session changes, fetch session details, claims, and synchronized transcript
   useEffect(() => {
     if (!activeSessionId) return;
 
-    // Immediately clear previous claims and reset playback head to prevent stale data
+    // Immediately clear previous data and reset playback head to prevent stale data
     setClaims([]);
+    setTranscriptLines([]);
     setCurrentTime(0);
     setActiveClaimId(null);
 
@@ -51,6 +53,10 @@ export default function App() {
     fetchClaims(activeSessionId)
       .then((data) => setClaims(data || []))
       .catch((err) => console.error('Failed to load claims:', err));
+
+    fetchTranscript(activeSessionId)
+      .then((lines) => setTranscriptLines(lines || []))
+      .catch((err) => console.error('Failed to load transcript:', err));
   }, [activeSessionId]);
 
   // 3. Connect to Real-time WebSocket Protocol for Sub-second Sync
@@ -156,6 +162,9 @@ export default function App() {
   };
 
   const activeClaim = claims.find((c) => c.id === activeClaimId) || null;
+  const currentSpeechLine = transcriptLines.find(
+    (l) => currentTime >= l.start && currentTime <= (l.end || (l.start + l.duration))
+  ) || null;
 
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col">
@@ -179,6 +188,7 @@ export default function App() {
             claims={claims}
             currentTime={currentTime}
             activeClaim={activeClaim}
+            currentSpeechLine={currentSpeechLine}
             onTimeUpdate={handleTimeUpdate}
             onSeek={handleSeek}
             onAnalyzeSegment={handleAnalyzeSegment}
@@ -196,8 +206,9 @@ export default function App() {
 
             <div className="flex items-center space-x-4 font-mono text-[11px] text-slate-400">
               <span>Status: <strong className="text-emerald-400">{currentSession?.status || 'READY'}</strong></span>
+              <span>Speech Lines: <strong className="text-indigo-400">{transcriptLines.length}</strong></span>
               <span>Claims: <strong className="text-white">{claims.length}</strong></span>
-              <span>Truth Score: <strong className="text-indigo-400">{currentSession?.metrics?.truth_score || 0}%</strong></span>
+              <span>Truth Score: <strong className="text-emerald-400">{currentSession?.metrics?.truth_score || 0}%</strong></span>
             </div>
           </div>
         </section>
@@ -207,6 +218,8 @@ export default function App() {
           <ContextFeed
             claims={claims}
             activeClaimId={activeClaimId}
+            transcriptLines={transcriptLines}
+            currentSpeechLine={currentSpeechLine}
             currentTime={currentTime}
             onJumpToTime={handleSeek}
             isWsConnected={isWsConnected}

@@ -49,6 +49,13 @@ export async function analyzeSegment(sessionId, timestamp) {
   return res.json();
 }
 
+export async function fetchTranscript(sessionId) {
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}/transcript`);
+  if (!res.ok) throw new Error(`Failed to fetch transcript for ${sessionId}`);
+  return res.json();
+}
+
 export function getExportUrl(sessionId, format = 'markdown') {
   return `${API_BASE}/sessions/${sessionId}/dossier/export?format=${format}`;
 }
+

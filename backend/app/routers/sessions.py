@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException, Query, Response
 from typing import List
-from ..models.schemas import Session, IngestSessionRequest
+from ..models.schemas import Session, IngestSessionRequest, TranscriptLine
 from ..services.firestore_service import firestore_service
 from ..services.ingestion_service import ingestion_service
 
@@ -53,3 +53,15 @@ def export_dossier(session_id: str, format: str = Query("markdown", enum=["markd
             "session": session.model_dump(),
             "claims": [c.model_dump() for c in claims]
         }
+
+@router.get("/{session_id}/transcript", response_model=List[TranscriptLine])
+def get_session_transcript(session_id: str):
+    """
+    Get synchronized speech transcript lines mapped with real-time fact-checking statuses
+    """
+    session = firestore_service.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    return ingestion_service.get_session_transcript_lines(session_id)
+
