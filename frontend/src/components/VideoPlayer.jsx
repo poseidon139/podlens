@@ -1,5 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Play, Pause, RotateCcw, Sparkles, ExternalLink, ShieldCheck, AlertTriangle, XCircle, Search, Loader2 } from 'lucide-react';
+import { 
+  Play, 
+  Pause, 
+  RotateCcw, 
+  Sparkles, 
+  ExternalLink, 
+  ShieldCheck, 
+  AlertTriangle, 
+  XCircle, 
+  Loader2, 
+  Maximize, 
+  Minimize 
+} from 'lucide-react';
 import TimelineTicks from './TimelineTicks';
 
 function formatTime(seconds) {
@@ -22,8 +34,11 @@ export default function VideoPlayer({
 }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [duration, setDuration] = useState(video?.duration_seconds || 300);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
   const timerIntervalRef = useRef(null);
   const youtubePlayerRef = useRef(null);
+  const playerContainerRef = useRef(null);
 
   const videoId = video?.youtube_video_id || "9tRohh0gErM";
 
@@ -37,11 +52,32 @@ export default function VideoPlayer({
     }
   }, []);
 
+  // Listen for native fullscreen changes
+  useEffect(() => {
+    const handleFsChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFsChange);
+    return () => document.removeEventListener('fullscreenchange', handleFsChange);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (!playerContainerRef.current) return;
+    if (!document.fullscreenElement) {
+      playerContainerRef.current.requestFullscreen().catch(err => {
+        console.warn("Fullscreen error:", err);
+      });
+    } else {
+      document.exitFullscreen().catch(err => {
+        console.warn("Exit fullscreen error:", err);
+      });
+    }
+  };
+
   // Handle video switching and player lifecycle safely
   useEffect(() => {
     if (!videoId) return;
 
-    // If player already initialized, use loadVideoById (preserves DOM and iframe)
     if (youtubePlayerRef.current && typeof youtubePlayerRef.current.loadVideoById === 'function') {
       try {
         youtubePlayerRef.current.loadVideoById(videoId);
@@ -51,7 +87,6 @@ export default function VideoPlayer({
       }
     }
 
-    // Ensure container has the player mount div
     const wrapper = document.getElementById('podlens-player-wrapper');
     if (wrapper) {
       wrapper.innerHTML = '<div id="podlens-yt-player" class="w-full h-full absolute inset-0"></div>';
@@ -67,6 +102,7 @@ export default function VideoPlayer({
             controls: 1,
             modestbranding: 1,
             rel: 0,
+            fs: 0, // Disable YouTube internal fullscreen so PodLens custom fullscreen with overlays works
             origin: window.location.origin
           },
           events: {
@@ -118,7 +154,6 @@ export default function VideoPlayer({
     if (youtubePlayerRef.current && typeof youtubePlayerRef.current.seekTo === 'function') {
       youtubePlayerRef.current.seekTo(timeSec, true);
     }
-    // Auto-trigger speech analysis for the seeked position
     if (onAnalyzeSegment) {
       onAnalyzeSegment(timeSec);
     }
@@ -139,117 +174,106 @@ export default function VideoPlayer({
   const progressPercent = Math.min(100, Math.max(0, (currentTime / (duration || 1)) * 100));
 
   return (
-    <div className="flex flex-col h-full bg-slate-900/60 rounded-2xl border border-slate-800/80 overflow-hidden shadow-2xl relative">
-      {/* Video Container (16:9 Aspect Ratio) */}
-      <div className="relative w-full aspect-video bg-black flex items-center justify-center overflow-hidden">
+    <div 
+      ref={playerContainerRef}
+      className={`flex flex-col bg-slate-900/60 rounded-2xl border border-slate-800/80 overflow-hidden shadow-2xl relative transition-all duration-200 ${
+        isFullscreen ? 'fixed inset-0 z-50 rounded-none w-screen h-screen bg-black' : 'h-full'
+      }`}
+    >
+      {/* Video Container */}
+      <div className={`relative w-full ${isFullscreen ? 'flex-1 h-[calc(100vh-90px)]' : 'aspect-video'} bg-black flex items-center justify-center overflow-hidden`}>
         <div id="podlens-player-wrapper" className="w-full h-full absolute inset-0">
           <div id="podlens-yt-player" className="w-full h-full absolute inset-0" />
         </div>
 
-        {/* Floating In-Stream Context Pill (Active Claim) */}
-        {activeClaim ? (
-          <div className="absolute top-4 right-4 z-30 max-w-sm animate-in fade-in slide-in-from-top-3 duration-300">
-            <div className={`p-3 rounded-xl backdrop-blur-xl border shadow-2xl ${
-              activeClaim.status === 'VERIFIED'
-                ? 'bg-emerald-950/80 border-emerald-500/40 text-emerald-100'
-                : activeClaim.status === 'CONTESTED'
-                ? 'bg-amber-950/80 border-amber-500/40 text-amber-100'
-                : 'bg-rose-950/80 border-rose-500/40 text-rose-100'
-            }`}>
-              <div className="flex items-center space-x-2 mb-1">
-                {activeClaim.status === 'VERIFIED' && <ShieldCheck className="w-4 h-4 text-emerald-400" />}
-                {activeClaim.status === 'CONTESTED' && <AlertTriangle className="w-4 h-4 text-amber-400" />}
-                {activeClaim.status === 'UNSUPPORTED' && <XCircle className="w-4 h-4 text-rose-400" />}
-                <span className="text-[11px] font-bold uppercase tracking-wider">
-                  {activeClaim.status} Claim
-                </span>
-                <span className="text-[10px] opacity-75 font-mono ml-auto">
-                  {formatTime(activeClaim.timestamp_start)} - {formatTime(activeClaim.timestamp_end)}
-                </span>
-              </div>
-              <p className="text-xs font-medium line-clamp-2 leading-relaxed">
-                "{activeClaim.claim_text}"
-              </p>
+        {/* SINGLE CONSOLIDATED COMPACT IN-STREAM HUD (Bottom of Video, Zero Top Clutter) */}
+        {isAnalyzing ? (
+          <div className="absolute bottom-3 left-4 right-4 z-30 pointer-events-none flex justify-center animate-in fade-in duration-200">
+            <div className="pointer-events-auto flex items-center space-x-2 bg-indigo-950/90 border border-indigo-500/50 text-indigo-200 text-xs px-3.5 py-1.5 rounded-xl backdrop-blur-md shadow-xl">
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
+              <span className="font-medium">Grounding speech at {formatTime(currentTime)}...</span>
             </div>
           </div>
-        ) : (
-          /* On-Demand Seek Fact-Checking Pill */
-          <div className="absolute top-4 right-4 z-30 animate-in fade-in duration-200">
-            {isAnalyzing ? (
-              <div className="flex items-center space-x-2 bg-indigo-950/90 border border-indigo-500/50 text-indigo-200 text-xs px-3 py-1.5 rounded-xl backdrop-blur-md shadow-xl">
-                <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
-                <span>Grounding speech at {formatTime(currentTime)}...</span>
-              </div>
-            ) : onAnalyzeSegment ? (
-              <button
-                onClick={() => onAnalyzeSegment(currentTime)}
-                className="flex items-center space-x-1.5 bg-slate-900/85 hover:bg-indigo-900/90 border border-slate-700/70 hover:border-indigo-500/50 text-slate-300 hover:text-white text-xs px-3 py-1.5 rounded-xl backdrop-blur-md shadow-lg transition"
-                title="Ground speech at this exact moment in the video"
-              >
-                <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                <span>Ground Speech @ {formatTime(currentTime)}</span>
-              </button>
-            ) : null}
-          </div>
-        )}
-
-        {/* Continuous In-Stream Live Speech Subtitle HUD with Real-Time Color Shifting Icon */}
-        {currentSpeechLine && (
-          <div className="absolute bottom-3 left-3 right-3 sm:left-6 sm:right-6 z-20 pointer-events-none flex justify-center animate-in fade-in slide-in-from-bottom-2 duration-200">
-            <div className={`pointer-events-auto max-w-2xl w-full px-4 py-2.5 rounded-2xl backdrop-blur-xl border shadow-2xl transition-all duration-300 flex items-center space-x-3.5 ${
-              currentSpeechLine.badge_color === 'green'
-                ? 'bg-emerald-950/90 border-emerald-500/60 text-emerald-100 shadow-emerald-950/60 ring-1 ring-emerald-500/30'
-                : currentSpeechLine.badge_color === 'amber'
-                ? 'bg-amber-950/90 border-amber-500/60 text-amber-100 shadow-amber-950/60 ring-1 ring-amber-500/30'
-                : currentSpeechLine.badge_color === 'red'
-                ? 'bg-rose-950/90 border-rose-500/60 text-rose-100 shadow-rose-950/60 ring-1 ring-rose-500/30'
-                : 'bg-slate-900/90 border-slate-700/70 text-slate-100 shadow-slate-950/60'
+        ) : activeClaim ? (
+          /* Active Major Claim (Compact In-Stream Badge) */
+          <div className="absolute bottom-3 left-3 right-3 sm:left-6 sm:right-6 z-30 pointer-events-none flex justify-center animate-in fade-in slide-in-from-bottom-2 duration-200">
+            <div className={`pointer-events-auto max-w-xl w-full px-3.5 py-2 rounded-xl backdrop-blur-xl border shadow-2xl flex items-center space-x-3 ${
+              activeClaim.status === 'VERIFIED'
+                ? 'bg-emerald-950/90 border-emerald-500/60 text-emerald-100 shadow-emerald-950/60'
+                : activeClaim.status === 'CONTESTED'
+                ? 'bg-amber-950/90 border-amber-500/60 text-amber-100 shadow-amber-950/60'
+                : 'bg-rose-950/90 border-rose-500/60 text-rose-100 shadow-rose-950/60'
             }`}>
-              {/* Live Small Icon that changes color in real-time */}
-              <div className={`p-2 rounded-xl border flex items-center justify-center shrink-0 transition-all duration-300 ${
-                currentSpeechLine.badge_color === 'green'
-                  ? 'bg-emerald-500/25 border-emerald-400/60 text-emerald-300 shadow-sm shadow-emerald-500/40'
-                  : currentSpeechLine.badge_color === 'amber'
-                  ? 'bg-amber-500/25 border-amber-400/60 text-amber-300 shadow-sm shadow-amber-500/40'
-                  : currentSpeechLine.badge_color === 'red'
-                  ? 'bg-rose-500/25 border-rose-400/60 text-rose-300 shadow-sm shadow-rose-500/40'
-                  : 'bg-indigo-500/25 border-indigo-400/60 text-indigo-300 shadow-sm shadow-indigo-500/40'
+              {/* Color-Shifting Status Icon */}
+              <div className={`p-1.5 rounded-lg border shrink-0 ${
+                activeClaim.status === 'VERIFIED'
+                  ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-400'
+                  : activeClaim.status === 'CONTESTED'
+                  ? 'bg-amber-500/20 border-amber-400/50 text-amber-400'
+                  : 'bg-rose-500/20 border-rose-400/50 text-rose-400'
               }`}>
-                {currentSpeechLine.badge_color === 'green' && <ShieldCheck className="w-5 h-5 animate-pulse" />}
-                {currentSpeechLine.badge_color === 'amber' && <AlertTriangle className="w-5 h-5 animate-pulse" />}
-                {currentSpeechLine.badge_color === 'red' && <XCircle className="w-5 h-5 animate-pulse" />}
-                {currentSpeechLine.badge_color === 'blue' && <Sparkles className="w-5 h-5 animate-pulse" />}
+                {activeClaim.status === 'VERIFIED' && <ShieldCheck className="w-4 h-4" />}
+                {activeClaim.status === 'CONTESTED' && <AlertTriangle className="w-4 h-4" />}
+                {activeClaim.status === 'UNSUPPORTED' && <XCircle className="w-4 h-4" />}
               </div>
 
-              {/* Spoken sentence and live status tag */}
               <div className="flex flex-col min-w-0 flex-1">
-                <div className="flex items-center space-x-2 mb-0.5">
-                  <span className={`text-[9px] font-bold uppercase tracking-wider px-2 py-0.5 rounded font-mono ${
-                    currentSpeechLine.badge_color === 'green' ? 'bg-emerald-500/30 text-emerald-200 border border-emerald-500/40' :
-                    currentSpeechLine.badge_color === 'amber' ? 'bg-amber-500/30 text-amber-200 border border-amber-500/40' :
-                    currentSpeechLine.badge_color === 'red' ? 'bg-rose-500/30 text-rose-200 border border-rose-500/40' :
-                    'bg-indigo-500/30 text-indigo-200 border border-indigo-500/40'
-                  }`}>
-                    {currentSpeechLine.status || 'VERIFIED'}
-                  </span>
-                  <span className="text-[11px] font-semibold text-slate-200 truncate">
-                    {currentSpeechLine.speaker || 'Speaker'}
-                  </span>
-                  <span className="text-[10px] text-slate-400 font-mono ml-auto">
-                    {formatTime(currentSpeechLine.start)}
-                  </span>
+                <div className="flex items-center space-x-2 text-[10px] font-mono">
+                  <span className="font-bold uppercase tracking-wider">{activeClaim.status} CLAIM</span>
+                  <span className="text-slate-300 font-sans font-semibold truncate">{activeClaim.speaker}</span>
+                  <span className="ml-auto opacity-75">{formatTime(activeClaim.timestamp_start)}</span>
                 </div>
-                <p className="text-xs sm:text-sm font-medium leading-snug line-clamp-2 text-white drop-shadow-sm">
+                <p className="text-xs font-medium truncate text-white leading-tight">
+                  "{activeClaim.claim_text}"
+                </p>
+              </div>
+            </div>
+          </div>
+        ) : currentSpeechLine ? (
+          /* Live Spoken Line Subtitle HUD with Color-Shifting Icon */
+          <div className="absolute bottom-3 left-3 right-3 sm:left-6 sm:right-6 z-30 pointer-events-none flex justify-center animate-in fade-in slide-in-from-bottom-2 duration-200">
+            <div className={`pointer-events-auto max-w-xl w-full px-3.5 py-2 rounded-xl backdrop-blur-xl border shadow-2xl flex items-center space-x-3 transition-all duration-300 ${
+              currentSpeechLine.badge_color === 'green'
+                ? 'bg-emerald-950/85 border-emerald-500/50 text-emerald-100'
+                : currentSpeechLine.badge_color === 'amber'
+                ? 'bg-amber-950/85 border-amber-500/50 text-amber-100'
+                : currentSpeechLine.badge_color === 'red'
+                ? 'bg-rose-950/85 border-rose-500/50 text-rose-100'
+                : 'bg-slate-900/85 border-slate-700/60 text-slate-100'
+            }`}>
+              {/* Real-time Status Icon */}
+              <div className={`p-1.5 rounded-lg border shrink-0 ${
+                currentSpeechLine.badge_color === 'green'
+                  ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-400'
+                  : currentSpeechLine.badge_color === 'amber'
+                  ? 'bg-amber-500/20 border-amber-400/50 text-amber-400'
+                  : currentSpeechLine.badge_color === 'red'
+                  ? 'bg-rose-500/20 border-rose-400/50 text-rose-400'
+                  : 'bg-indigo-500/20 border-indigo-400/50 text-indigo-400'
+              }`}>
+                {currentSpeechLine.badge_color === 'green' && <ShieldCheck className="w-4 h-4 animate-pulse" />}
+                {currentSpeechLine.badge_color === 'amber' && <AlertTriangle className="w-4 h-4 animate-pulse" />}
+                {currentSpeechLine.badge_color === 'red' && <XCircle className="w-4 h-4 animate-pulse" />}
+                {currentSpeechLine.badge_color === 'blue' && <Sparkles className="w-4 h-4 animate-pulse" />}
+              </div>
+
+              <div className="flex flex-col min-w-0 flex-1">
+                <div className="flex items-center space-x-2 text-[10px] font-mono">
+                  <span className="font-bold uppercase tracking-wider">{currentSpeechLine.status || 'VERIFIED'}</span>
+                  <span className="text-slate-300 font-sans font-semibold truncate">{currentSpeechLine.speaker || 'Speaker'}</span>
+                  <span className="ml-auto opacity-75">{formatTime(currentSpeechLine.start)}</span>
+                </div>
+                <p className="text-xs font-medium truncate text-white leading-tight">
                   "{currentSpeechLine.text}"
                 </p>
               </div>
             </div>
           </div>
-        )}
+        ) : null}
       </div>
 
       {/* Synchronized Custom Controls & Grounding Scrubber */}
-      <div className="p-4 bg-slate-900/90 border-t border-slate-800/80 flex flex-col space-y-3">
+      <div className="p-3 sm:p-4 bg-slate-900/95 border-t border-slate-800/80 flex flex-col space-y-2.5">
         {/* Interactive Timeline with Grounded Claims Markers */}
         <div className="flex flex-col space-y-1">
           <div className="relative w-full group py-1 cursor-pointer" onClick={(e) => {
@@ -259,7 +283,6 @@ export default function VideoPlayer({
           }}>
             {/* Background Track */}
             <div className="h-2 w-full bg-slate-800 rounded-full overflow-hidden relative">
-              {/* Played Progress Bar */}
               <div
                 className="h-full bg-gradient-to-r from-indigo-500 to-violet-500 transition-all duration-100 rounded-full"
                 style={{ width: `${progressPercent}%` }}
@@ -278,7 +301,7 @@ export default function VideoPlayer({
           </div>
 
           {/* Timecode Indicators */}
-          <div className="flex justify-between items-center text-[11px] font-mono text-slate-400 pt-1">
+          <div className="flex justify-between items-center text-[11px] font-mono text-slate-400 pt-0.5">
             <span>{formatTime(currentTime)}</span>
             <div className="flex items-center space-x-3 text-[10px]">
               <span className="flex items-center space-x-1">
@@ -298,12 +321,13 @@ export default function VideoPlayer({
           </div>
         </div>
 
-        {/* Video Info & Quick Play Controls */}
+        {/* Video Info, Seek Grounding Button, and Custom FullScreen Controls */}
         <div className="flex items-center justify-between pt-1 border-t border-slate-800/60">
           <div className="flex items-center space-x-3">
             <button
               onClick={handleTogglePlay}
               className="p-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition shadow-md shadow-indigo-600/30"
+              title={isPlaying ? "Pause" : "Play"}
             >
               {isPlaying ? <Pause className="w-4 h-4" /> : <Play className="w-4 h-4" />}
             </button>
@@ -314,26 +338,44 @@ export default function VideoPlayer({
             >
               <RotateCcw className="w-3.5 h-3.5" />
             </button>
+
+            {onAnalyzeSegment && (
+              <button
+                onClick={() => onAnalyzeSegment(currentTime)}
+                className="hidden sm:flex items-center space-x-1.5 bg-slate-800/80 hover:bg-indigo-900/60 border border-slate-700 hover:border-indigo-500/50 text-slate-300 hover:text-white text-xs px-2.5 py-1.5 rounded-lg transition"
+                title="Ground speech at this exact moment"
+              >
+                <Sparkles className="w-3 h-3 text-amber-400" />
+                <span>Ground @ {formatTime(currentTime)}</span>
+              </button>
+            )}
+
             <div className="text-xs">
-              <p className="font-semibold text-slate-200 truncate max-w-sm">
+              <p className="font-semibold text-slate-200 truncate max-w-xs sm:max-w-sm">
                 {video?.title || "Podcast Stream"}
-              </p>
-              <p className="text-[11px] text-slate-400">
-                Synchronized with Vertex AI & Google Search Grounding
               </p>
             </div>
           </div>
 
-          <div className="hidden sm:flex items-center space-x-2">
+          <div className="flex items-center space-x-2">
             <a
               href={`https://www.youtube.com/watch?v=${videoId}`}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center space-x-1 text-[11px] text-slate-400 hover:text-slate-200 transition bg-slate-800/60 hover:bg-slate-800 px-2.5 py-1 rounded-md border border-slate-700/50"
+              className="hidden md:flex items-center space-x-1 text-[11px] text-slate-400 hover:text-slate-200 transition bg-slate-800/60 hover:bg-slate-800 px-2.5 py-1 rounded-md border border-slate-700/50"
             >
               <span>YouTube</span>
               <ExternalLink className="w-3 h-3" />
             </a>
+
+            {/* Custom FullScreen Toggle Button (Preserves Overlays & Subtitles) */}
+            <button
+              onClick={toggleFullscreen}
+              className="p-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white transition border border-slate-700/50"
+              title={isFullscreen ? "Exit Fullscreen" : "Fullscreen with Live Fact-Checking"}
+            >
+              {isFullscreen ? <Minimize className="w-4 h-4" /> : <Maximize className="w-4 h-4" />}
+            </button>
           </div>
         </div>
       </div>

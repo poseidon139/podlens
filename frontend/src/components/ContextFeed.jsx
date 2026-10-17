@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState } from 'react';
 import { 
   Compass, 
   Sparkles, 
@@ -8,10 +8,10 @@ import {
   XCircle, 
   Radio, 
   FileText, 
-  Play, 
   Volume2, 
-  Check, 
-  ExternalLink 
+  ExternalLink,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import ClaimCard from './ClaimCard';
 
@@ -34,22 +34,9 @@ export default function ContextFeed({
 }) {
   const [activeTab, setActiveTab] = useState('SPEECH_LOG'); // 'SPEECH_LOG' | 'CLAIMS_DOSSIER'
   const [statusFilter, setStatusFilter] = useState('ALL');
-  const [autoFollow, setAutoFollow] = useState(true);
+  const [showFullArchive, setShowFullArchive] = useState(false);
 
-  const activeLineRef = useRef(null);
-  const feedContainerRef = useRef(null);
-
-  // Auto-scroll to follow speaker in real-time
-  useEffect(() => {
-    if (activeTab === 'SPEECH_LOG' && autoFollow && activeLineRef.current) {
-      activeLineRef.current.scrollIntoView({
-        behavior: 'smooth',
-        block: 'center'
-      });
-    }
-  }, [currentSpeechLine?.id, activeTab, autoFollow]);
-
-  // Filter claims
+  // Filter claims for Claims Dossier tab
   const filteredClaims = claims.filter((c) => {
     if (statusFilter === 'ALL') return true;
     return c.status === statusFilter;
@@ -58,6 +45,13 @@ export default function ContextFeed({
   const verifiedCount = claims.filter(c => c.status === 'VERIFIED').length;
   const contestedCount = claims.filter(c => c.status === 'CONTESTED').length;
   const unsupportedCount = claims.filter(c => c.status === 'UNSUPPORTED').length;
+
+  // Filter and reverse spoken lines so the MOST RECENT line is always on TOP
+  const spokenLines = transcriptLines.filter((l) => l.start <= currentTime + 1.2);
+  const reversedSpoken = [...spokenLines].reverse();
+  
+  // Show only recent lines (top 5) to keep it neat and disappear older lines
+  const visibleSpeechLines = showFullArchive ? reversedSpoken : reversedSpoken.slice(0, 5);
 
   return (
     <div className="flex flex-col h-full bg-slate-900/40 rounded-2xl border border-slate-800/80 overflow-hidden shadow-2xl">
@@ -91,7 +85,7 @@ export default function ContextFeed({
             }`}
           >
             <Radio className={`w-3.5 h-3.5 ${activeTab === 'SPEECH_LOG' ? 'text-indigo-200 animate-pulse' : ''}`} />
-            <span>Live Speech Log ({transcriptLines.length || 0})</span>
+            <span>Live Speech Log</span>
           </button>
 
           <button
@@ -108,7 +102,7 @@ export default function ContextFeed({
         </div>
       </div>
 
-      {/* Sub-Header: Filters or Auto-Follow Controls */}
+      {/* Sub-Header: Filters or Live Feed Indicator */}
       {activeTab === 'CLAIMS_DOSSIER' ? (
         <div className="px-4 py-2 bg-slate-900/60 border-b border-slate-800/60 flex items-center space-x-1.5 overflow-x-auto">
           <button
@@ -162,123 +156,141 @@ export default function ContextFeed({
         <div className="px-4 py-2 bg-slate-900/60 border-b border-slate-800/60 flex items-center justify-between text-xs text-slate-400">
           <div className="flex items-center space-x-2">
             <Volume2 className="w-3.5 h-3.5 text-indigo-400" />
-            <span>Continuous line-by-line speech fact-checking</span>
+            <span className="text-[11px]">Latest speech at top • Older speech pruned</span>
           </div>
 
-          <label className="flex items-center space-x-1.5 cursor-pointer select-none text-[11px] text-slate-300">
-            <input
-              type="checkbox"
-              checked={autoFollow}
-              onChange={(e) => setAutoFollow(e.target.checked)}
-              className="rounded bg-slate-800 border-slate-700 text-indigo-600 focus:ring-0 w-3.5 h-3.5"
-            />
-            <span>Auto-Follow</span>
-          </label>
+          <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-indigo-300">
+            {spokenLines.length} spoken
+          </span>
         </div>
       )}
 
       {/* Main Content Area */}
-      <div
-        ref={feedContainerRef}
-        className="flex-1 p-3.5 overflow-y-auto space-y-2.5 scroll-smooth"
-      >
+      <div className="flex-1 p-3.5 overflow-y-auto space-y-2.5">
         {activeTab === 'SPEECH_LOG' ? (
-          /* TAB 1: Continuous Live Speech Log with Real-Time Color Shifts */
-          transcriptLines.length === 0 ? (
+          /* TAB 1: Recent Speech on Top, Cleanly Pruned */
+          spokenLines.length === 0 ? (
             <div className="h-64 flex flex-col items-center justify-center text-center p-6 text-slate-400 space-y-2">
-              <Sparkles className="w-8 h-8 text-indigo-400 animate-spin" />
-              <p className="text-xs font-medium text-slate-300">Loading synchronized speech transcript...</p>
+              <Sparkles className="w-8 h-8 text-indigo-400 animate-pulse" />
+              <p className="text-xs font-medium text-slate-300">Play video to start continuous speech stream</p>
+              <p className="text-[11px] text-slate-500">Statements will appear at the top in real time</p>
             </div>
           ) : (
-            transcriptLines.map((line) => {
-              const isActive = currentSpeechLine?.id === line.id;
-              const isPast = currentTime > (line.end || line.start + line.duration);
+            <>
+              {visibleSpeechLines.map((line, index) => {
+                const isCurrent = index === 0 && currentSpeechLine?.id === line.id;
 
-              return (
-                <div
-                  key={line.id}
-                  ref={isActive ? activeLineRef : null}
-                  onClick={() => onJumpToTime && onJumpToTime(line.start)}
-                  className={`group relative p-3 rounded-xl border text-xs cursor-pointer transition-all duration-200 ${
-                    isActive
-                      ? line.badge_color === 'green'
-                        ? 'bg-emerald-950/70 border-emerald-500/80 shadow-lg shadow-emerald-950/50 ring-2 ring-emerald-500/40'
-                        : line.badge_color === 'amber'
-                        ? 'bg-amber-950/70 border-amber-500/80 shadow-lg shadow-amber-950/50 ring-2 ring-amber-500/40'
-                        : line.badge_color === 'red'
-                        ? 'bg-rose-950/70 border-rose-500/80 shadow-lg shadow-rose-950/50 ring-2 ring-rose-500/40'
-                        : 'bg-indigo-950/70 border-indigo-500/80 shadow-lg shadow-indigo-950/50 ring-2 ring-indigo-500/40'
-                      : isPast
-                      ? 'bg-slate-900/50 border-slate-800/80 text-slate-300 hover:border-slate-700 hover:bg-slate-900/80'
-                      : 'bg-slate-950/40 border-slate-900 text-slate-500 opacity-60 hover:opacity-100 hover:bg-slate-900/40'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-1.5 gap-2">
-                    {/* Timestamp & Speaker */}
-                    <div className="flex items-center space-x-2">
-                      <span className={`px-1.5 py-0.5 rounded font-mono text-[10px] font-semibold transition ${
-                        isActive
-                          ? 'bg-white text-slate-950 font-bold'
-                          : 'bg-slate-800/90 text-slate-400 group-hover:text-slate-200'
-                      }`}>
-                        {formatTime(line.start)}
-                      </span>
-                      <span className="font-semibold text-slate-300 text-[11px] truncate max-w-[140px]">
-                        {line.speaker || 'Speaker'}
-                      </span>
-                    </div>
-
-                    {/* Small Status Icon turning color in real-time */}
-                    <div className="flex items-center space-x-1.5 shrink-0">
-                      <span className={`flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold font-mono transition-colors duration-300 ${
-                        line.badge_color === 'green'
-                          ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                return (
+                  <div
+                    key={line.id}
+                    onClick={() => onJumpToTime && onJumpToTime(line.start)}
+                    className={`relative p-3 rounded-xl border text-xs cursor-pointer transition-all duration-300 animate-in fade-in slide-in-from-top-1 ${
+                      isCurrent
+                        ? line.badge_color === 'green'
+                          ? 'bg-emerald-950/70 border-emerald-500/80 shadow-lg shadow-emerald-950/50 ring-2 ring-emerald-500/40'
                           : line.badge_color === 'amber'
-                          ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                          ? 'bg-amber-950/70 border-amber-500/80 shadow-lg shadow-amber-950/50 ring-2 ring-amber-500/40'
                           : line.badge_color === 'red'
-                          ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-                          : 'bg-slate-800 text-slate-400 border border-slate-700'
-                      }`}>
-                        {line.badge_color === 'green' && <ShieldCheck className="w-3 h-3 text-emerald-400" />}
-                        {line.badge_color === 'amber' && <AlertTriangle className="w-3 h-3 text-amber-400" />}
-                        {line.badge_color === 'red' && <XCircle className="w-3 h-3 text-rose-400" />}
-                        {line.badge_color === 'blue' && <Sparkles className="w-3 h-3 text-indigo-400" />}
-                        <span>{line.status}</span>
-                      </span>
-
-                      {isActive && (
-                        <span className="flex h-2 w-2 relative">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                          ? 'bg-rose-950/70 border-rose-500/80 shadow-lg shadow-rose-950/50 ring-2 ring-rose-500/40'
+                          : 'bg-indigo-950/70 border-indigo-500/80 shadow-lg shadow-indigo-950/50 ring-2 ring-indigo-500/40'
+                        : index === 1
+                        ? 'bg-slate-900/80 border-slate-800 text-slate-200'
+                        : index === 2
+                        ? 'bg-slate-900/60 border-slate-800/80 text-slate-300 opacity-90'
+                        : index === 3
+                        ? 'bg-slate-900/40 border-slate-800/60 text-slate-400 opacity-75'
+                        : 'bg-slate-950/40 border-slate-900 text-slate-500 opacity-60'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-1.5 gap-2">
+                      {/* Timestamp & Speaker */}
+                      <div className="flex items-center space-x-2">
+                        <span className={`px-1.5 py-0.5 rounded font-mono text-[10px] font-semibold transition ${
+                          isCurrent
+                            ? 'bg-white text-slate-950 font-bold'
+                            : 'bg-slate-800 text-slate-400'
+                        }`}>
+                          {formatTime(line.start)}
                         </span>
-                      )}
+                        <span className="font-semibold text-slate-300 text-[11px] truncate max-w-[130px]">
+                          {line.speaker || 'Speaker'}
+                        </span>
+                      </div>
+
+                      {/* Small Status Icon that changes color in real-time */}
+                      <div className="flex items-center space-x-1.5 shrink-0">
+                        <span className={`flex items-center space-x-1 px-2 py-0.5 rounded-full text-[10px] font-bold font-mono transition-colors duration-300 ${
+                          line.badge_color === 'green'
+                            ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                            : line.badge_color === 'amber'
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
+                            : line.badge_color === 'red'
+                            ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                            : 'bg-slate-800 text-slate-400 border border-slate-700'
+                        }`}>
+                          {line.badge_color === 'green' && <ShieldCheck className="w-3 h-3 text-emerald-400" />}
+                          {line.badge_color === 'amber' && <AlertTriangle className="w-3 h-3 text-amber-400" />}
+                          {line.badge_color === 'red' && <XCircle className="w-3 h-3 text-rose-400" />}
+                          {line.badge_color === 'blue' && <Sparkles className="w-3 h-3 text-indigo-400" />}
+                          <span>{line.status}</span>
+                        </span>
+
+                        {isCurrent && (
+                          <span className="flex h-2 w-2 relative">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                          </span>
+                        )}
+                      </div>
                     </div>
+
+                    {/* Speech Text */}
+                    <p className={`leading-relaxed text-[12px] font-medium ${
+                      isCurrent ? 'text-white font-semibold' : 'text-slate-200'
+                    }`}>
+                      "{line.text}"
+                    </p>
+
+                    {/* Fact-check consensus explanation on active sentence */}
+                    {line.verdict_summary && isCurrent && (
+                      <div className="mt-2 pt-2 border-t border-white/10 text-[11px] opacity-90 leading-tight">
+                        <span className="font-semibold text-slate-300">Grounding consensus: </span>
+                        {line.verdict_summary}
+                      </div>
+                    )}
+
+                    {line.claim_id && (
+                      <div className="mt-1.5 flex items-center space-x-1 text-[10px] text-indigo-400 font-medium">
+                        <span>Empirical Claim Link</span>
+                        <ExternalLink className="w-2.5 h-2.5 ml-0.5 opacity-80" />
+                      </div>
+                    )}
                   </div>
+                );
+              })}
 
-                  {/* Verbatim Speech Utterance */}
-                  <p className={`leading-relaxed text-[12px] font-medium transition ${
-                    isActive ? 'text-white font-semibold' : isPast ? 'text-slate-200' : 'text-slate-400'
-                  }`}>
-                    "{line.text}"
-                  </p>
-
-                  {/* Fact-check verdict explanation if present */}
-                  {line.verdict_summary && isActive && (
-                    <div className="mt-2 pt-2 border-t border-white/10 text-[11px] opacity-90 leading-tight">
-                      <span className="font-semibold text-slate-300">Grounding consensus: </span>
-                      {line.verdict_summary}
-                    </div>
-                  )}
-
-                  {line.claim_id && (
-                    <div className="mt-1.5 flex items-center space-x-1 text-[10px] text-indigo-400 font-medium">
-                      <span>Empirical Claim Link</span>
-                      <ExternalLink className="w-2.5 h-2.5 ml-0.5 opacity-80" />
-                    </div>
-                  )}
+              {/* Toggle to expand/collapse older archive if desired */}
+              {spokenLines.length > 5 && (
+                <div className="pt-2 text-center">
+                  <button
+                    onClick={() => setShowFullArchive(!showFullArchive)}
+                    className="inline-flex items-center space-x-1 text-[11px] text-slate-400 hover:text-slate-200 transition py-1 px-2 rounded-lg bg-slate-900/60 hover:bg-slate-800 border border-slate-800"
+                  >
+                    {showFullArchive ? (
+                      <>
+                        <ChevronUp className="w-3 h-3" />
+                        <span>Show Recent 5 Lines Only</span>
+                      </>
+                    ) : (
+                      <>
+                        <ChevronDown className="w-3 h-3" />
+                        <span>Show Full Spoken History ({spokenLines.length - 5} older)</span>
+                      </>
+                    )}
+                  </button>
                 </div>
-              );
-            })
+              )}
+            </>
           )
         ) : (
           /* TAB 2: Major Fact-Checked Claims Dossier */
