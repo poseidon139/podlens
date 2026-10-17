@@ -2,17 +2,17 @@ import React, { useState } from 'react';
 import { X, Download, Copy, Check, FileText, CheckCircle2, AlertTriangle, XCircle, Share2 } from 'lucide-react';
 import { getExportUrl } from '../services/api';
 
-export default function DossierModal({ session, claims = [], isOpen, onClose }) {
+export default function DossierModal({ session, metrics: propMetrics, claims = [], isOpen, onClose }) {
   const [copiedBibliography, setCopiedBibliography] = useState(false);
 
   if (!isOpen || !session) return null;
 
-  const metrics = session.metrics || {
-    verified: claims.filter(c => c.status === 'VERIFIED').length,
-    contested: claims.filter(c => c.status === 'CONTESTED').length,
-    unsupported: claims.filter(c => c.status === 'UNSUPPORTED').length,
+  const metrics = propMetrics || {
+    verified: claims.filter(c => (c.status === 'VERIFIED' || c.status?.value === 'VERIFIED')).length,
+    contested: claims.filter(c => (c.status === 'CONTESTED' || c.status?.value === 'CONTESTED')).length,
+    unsupported: claims.filter(c => (c.status === 'UNSUPPORTED' || c.status?.value === 'UNSUPPORTED')).length,
     total_claims: claims.length,
-    truth_score: Math.round((claims.filter(c => c.status === 'VERIFIED').length / (claims.length || 1)) * 100)
+    truth_score: claims.length > 0 ? Math.round((claims.filter(c => (c.status === 'VERIFIED' || c.status?.value === 'VERIFIED')).length / claims.length) * 100) : (session.metrics?.truth_score || 100)
   };
 
   const handleCopyBibliography = () => {

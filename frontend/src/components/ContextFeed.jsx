@@ -39,12 +39,19 @@ export default function ContextFeed({
   // Filter claims for Claims Dossier tab
   const filteredClaims = claims.filter((c) => {
     if (statusFilter === 'ALL') return true;
-    return c.status === statusFilter;
+    return c.status === statusFilter || c.status?.value === statusFilter;
   });
 
-  const verifiedCount = claims.filter(c => c.status === 'VERIFIED').length;
-  const contestedCount = claims.filter(c => c.status === 'CONTESTED').length;
-  const unsupportedCount = claims.filter(c => c.status === 'UNSUPPORTED').length;
+  const verifiedCount = claims.filter(c => c.status === 'VERIFIED' || c.status?.value === 'VERIFIED').length;
+  const contestedCount = claims.filter(c => c.status === 'CONTESTED' || c.status?.value === 'CONTESTED').length;
+  const unsupportedCount = claims.filter(c => c.status === 'UNSUPPORTED' || c.status?.value === 'UNSUPPORTED').length;
+
+  // Sort claims so active claim is on top, followed by most recently spoken claims
+  const sortedClaims = [...filteredClaims].sort((a, b) => {
+    if (a.id === activeClaimId) return -1;
+    if (b.id === activeClaimId) return 1;
+    return (b.timestamp_start || 0) - (a.timestamp_start || 0);
+  });
 
   // Filter and reverse spoken lines so the MOST RECENT line is always on TOP
   const spokenLines = transcriptLines.filter((l) => l.start <= currentTime + 1.2);
@@ -330,7 +337,7 @@ export default function ContextFeed({
               <p className="text-xs font-medium">No claims match the selected filter.</p>
             </div>
           ) : (
-            filteredClaims.map((claim) => (
+            sortedClaims.map((claim) => (
               <ClaimCard
                 key={claim.id}
                 claim={claim}
