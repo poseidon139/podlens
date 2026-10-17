@@ -187,30 +187,31 @@ export default function VideoPlayer({
         </div>
 
         {/* SINGLE CONSOLIDATED COMPACT IN-STREAM HUD (Bottom of Video, Zero Top Clutter) */}
+        {/* SINGLE CONSOLIDATED COMPACT IN-STREAM HUD - Only shows for Facts / Claims / Contested assertions, NOT normal speech */}
         {isAnalyzing ? (
           <div className="absolute bottom-3 left-4 right-4 z-30 pointer-events-none flex justify-center animate-in fade-in duration-200">
-            <div className="pointer-events-auto flex items-center space-x-2 bg-indigo-950/90 border border-indigo-500/50 text-indigo-200 text-xs px-3.5 py-1.5 rounded-xl backdrop-blur-md shadow-xl">
+            <div className="pointer-events-auto flex items-center space-x-2 bg-indigo-950/50 border border-indigo-500/40 text-indigo-200 text-xs px-3.5 py-1.5 rounded-xl backdrop-blur-md shadow-lg">
               <Loader2 className="w-3.5 h-3.5 animate-spin text-indigo-400" />
               <span className="font-medium">Grounding speech at {formatTime(currentTime)}...</span>
             </div>
           </div>
         ) : activeClaim ? (
-          /* Active Major Claim (Compact In-Stream Badge) */
+          /* Active Major Claim (Transparent In-Stream Glass Badge) */
           <div className="absolute bottom-3 left-3 right-3 sm:left-6 sm:right-6 z-30 pointer-events-none flex justify-center animate-in fade-in slide-in-from-bottom-2 duration-200">
-            <div className={`pointer-events-auto max-w-xl w-full px-3.5 py-2 rounded-xl backdrop-blur-xl border shadow-2xl flex items-center space-x-3 ${
+            <div className={`pointer-events-auto max-w-xl w-full px-3.5 py-2 rounded-xl backdrop-blur-md border shadow-lg flex items-center space-x-3 transition-all duration-300 ${
               activeClaim.status === 'VERIFIED'
-                ? 'bg-emerald-950/90 border-emerald-500/60 text-emerald-100 shadow-emerald-950/60'
+                ? 'bg-emerald-950/55 border-emerald-500/40 text-emerald-100 shadow-emerald-950/40'
                 : activeClaim.status === 'CONTESTED'
-                ? 'bg-amber-950/90 border-amber-500/60 text-amber-100 shadow-amber-950/60'
-                : 'bg-rose-950/90 border-rose-500/60 text-rose-100 shadow-rose-950/60'
+                ? 'bg-amber-950/55 border-amber-500/40 text-amber-100 shadow-amber-950/40'
+                : 'bg-rose-950/55 border-rose-500/40 text-rose-100 shadow-rose-950/40'
             }`}>
               {/* Color-Shifting Status Icon */}
               <div className={`p-1.5 rounded-lg border shrink-0 ${
                 activeClaim.status === 'VERIFIED'
-                  ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-400'
+                  ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300'
                   : activeClaim.status === 'CONTESTED'
-                  ? 'bg-amber-500/20 border-amber-400/50 text-amber-400'
-                  : 'bg-rose-500/20 border-rose-400/50 text-rose-400'
+                  ? 'bg-amber-500/20 border-amber-400/40 text-amber-300'
+                  : 'bg-rose-500/20 border-rose-400/40 text-rose-300'
               }`}>
                 {activeClaim.status === 'VERIFIED' && <ShieldCheck className="w-4 h-4" />}
                 {activeClaim.status === 'CONTESTED' && <AlertTriangle className="w-4 h-4" />}
@@ -219,8 +220,8 @@ export default function VideoPlayer({
 
               <div className="flex flex-col min-w-0 flex-1">
                 <div className="flex items-center space-x-2 text-[10px] font-mono">
-                  <span className="font-bold uppercase tracking-wider">{activeClaim.status} CLAIM</span>
-                  <span className="text-slate-300 font-sans font-semibold truncate">{activeClaim.speaker}</span>
+                  <span className="font-bold uppercase tracking-wider">{activeClaim.status} FACT</span>
+                  <span className="text-slate-200 font-sans font-semibold truncate">{activeClaim.speaker}</span>
                   <span className="ml-auto opacity-75">{formatTime(activeClaim.timestamp_start)}</span>
                 </div>
                 <p className="text-xs font-medium truncate text-white leading-tight">
@@ -229,53 +230,46 @@ export default function VideoPlayer({
               </div>
             </div>
           </div>
-        ) : currentSpeechLine ? (
-          /* Live Spoken Line Subtitle HUD (Normal Speech White, Verified Fact Green) */
+        ) : (currentSpeechLine && currentSpeechLine.status !== 'NORMAL SPEECH' && currentSpeechLine.badge_color !== 'white') ? (
+          /* Live Verified/Contested Fact HUD (Transparent Glass - Normal Speech is NOT shown inside video) */
           <div className="absolute bottom-3 left-3 right-3 sm:left-6 sm:right-6 z-30 pointer-events-none flex justify-center animate-in fade-in slide-in-from-bottom-2 duration-200">
-            <div className={`pointer-events-auto max-w-xl w-full px-3.5 py-2.5 rounded-xl backdrop-blur-xl border shadow-2xl flex items-center space-x-3 transition-all duration-300 ${
+            <div className={`pointer-events-auto max-w-xl w-full px-3.5 py-2.5 rounded-xl backdrop-blur-md border shadow-lg flex items-center space-x-3 transition-all duration-300 ${
               currentSpeechLine.badge_color === 'green'
-                ? 'bg-emerald-950/95 border-emerald-500/80 text-emerald-100 shadow-emerald-950/70 ring-2 ring-emerald-500/40'
+                ? 'bg-emerald-950/55 border-emerald-500/40 text-emerald-100 shadow-emerald-950/40'
                 : currentSpeechLine.badge_color === 'amber'
-                ? 'bg-amber-950/95 border-amber-500/80 text-amber-100 shadow-amber-950/70 ring-1 ring-amber-500/40'
-                : currentSpeechLine.badge_color === 'red'
-                ? 'bg-rose-950/95 border-rose-500/80 text-rose-100 shadow-rose-950/70 ring-1 ring-rose-500/40'
-                : 'bg-slate-900/95 border-slate-700/80 text-white shadow-black/80'
+                ? 'bg-amber-950/55 border-amber-500/40 text-amber-100 shadow-amber-950/40'
+                : 'bg-rose-950/55 border-rose-500/40 text-rose-100 shadow-rose-950/40'
             }`}>
               {/* Real-time Status Icon */}
               <div className={`p-1.5 rounded-lg border shrink-0 ${
                 currentSpeechLine.badge_color === 'green'
-                  ? 'bg-emerald-500/20 border-emerald-400/50 text-emerald-400'
+                  ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-300'
                   : currentSpeechLine.badge_color === 'amber'
-                  ? 'bg-amber-500/20 border-amber-400/50 text-amber-400'
-                  : currentSpeechLine.badge_color === 'red'
-                  ? 'bg-rose-500/20 border-rose-400/50 text-rose-400'
-                  : 'bg-white/10 border-white/20 text-white'
+                  ? 'bg-amber-500/20 border-amber-400/40 text-amber-300'
+                  : 'bg-rose-500/20 border-rose-400/40 text-rose-300'
               }`}>
-                {currentSpeechLine.badge_color === 'green' ? <ShieldCheck className="w-4 h-4 text-emerald-400 animate-pulse" /> :
-                 currentSpeechLine.badge_color === 'amber' ? <AlertTriangle className="w-4 h-4 text-amber-400 animate-pulse" /> :
-                 currentSpeechLine.badge_color === 'red' ? <XCircle className="w-4 h-4 text-rose-400 animate-pulse" /> :
-                 <Sparkles className="w-4 h-4 text-white" />}
+                {currentSpeechLine.badge_color === 'green' ? <ShieldCheck className="w-4 h-4 text-emerald-300 animate-pulse" /> :
+                 currentSpeechLine.badge_color === 'amber' ? <AlertTriangle className="w-4 h-4 text-amber-300 animate-pulse" /> :
+                 <XCircle className="w-4 h-4 text-rose-300 animate-pulse" />}
               </div>
 
               <div className="flex flex-col min-w-0 flex-1">
                 <div className="flex items-center space-x-2 text-[10px] font-mono mb-0.5">
                   <span className={`font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${
                     currentSpeechLine.badge_color === 'green'
-                      ? 'bg-emerald-500/30 text-emerald-300 border border-emerald-500/40'
+                      ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-500/30'
                       : currentSpeechLine.badge_color === 'amber'
-                      ? 'bg-amber-500/30 text-amber-300 border border-amber-500/40'
-                      : currentSpeechLine.badge_color === 'red'
-                      ? 'bg-rose-500/30 text-rose-300 border border-rose-500/40'
-                      : 'bg-white/10 text-white border border-white/20'
+                      ? 'bg-amber-500/25 text-amber-300 border border-amber-500/30'
+                      : 'bg-rose-500/25 text-rose-300 border border-rose-500/30'
                   }`}>
-                    {currentSpeechLine.status || 'NORMAL SPEECH'}
+                    {currentSpeechLine.status}
                   </span>
                   {currentSpeechLine.resource && (
                     <span className="text-emerald-300 font-sans font-semibold truncate">
                       Source: {currentSpeechLine.resource}
                     </span>
                   )}
-                  <span className="text-slate-300 font-sans font-semibold truncate">{currentSpeechLine.speaker || 'Speaker'}</span>
+                  <span className="text-slate-200 font-sans font-semibold truncate">{currentSpeechLine.speaker || 'Speaker'}</span>
                   <span className="ml-auto opacity-75">{formatTime(currentSpeechLine.start)}</span>
                 </div>
                 <p className="text-xs sm:text-sm font-medium leading-snug text-white">
