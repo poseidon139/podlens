@@ -262,13 +262,19 @@ export default function App() {
             isAnalyzing={isAnalyzingSegment}
           />
 
-          {/* Quick Context Strip */}
+          {/* Quick Context Strip with Video Context Knowledge Badge */}
           <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800/80 flex flex-wrap items-center justify-between text-xs text-slate-300 gap-3">
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center flex-wrap gap-2">
               <span className="font-semibold text-white">Active Episode:</span>
-              <span className="text-indigo-300 font-medium truncate max-w-md">
+              <span className="text-indigo-300 font-medium truncate max-w-sm">
                 {currentSession?.title || 'Loading podcast...'}
               </span>
+              {currentSession?.context?.domain && (
+                <span className="inline-flex items-center space-x-1 px-2.5 py-0.5 rounded-full bg-indigo-500/15 border border-indigo-500/30 text-indigo-300 text-[11px] font-medium" title={currentSession.context.summary || currentSession.context.primary_topic}>
+                  <span>🧠</span>
+                  <span className="font-semibold">{currentSession.context.domain}</span>
+                </span>
+              )}
             </div>
 
             <div className="flex items-center space-x-4 font-mono text-[11px] text-slate-400">
@@ -291,6 +297,7 @@ export default function App() {
             onJumpToTime={handleSeek}
             isWsConnected={isWsConnected}
             onOpenVerify={() => setIsVerifyOpen(true)}
+            sessionContext={currentSession?.context}
           />
         </section>
       </main>

@@ -316,6 +316,12 @@ export default function VideoPlayer({
                   }`}>
                     {currentSpeechLine.status}
                   </span>
+                  {currentSpeechLine.context_domain && (
+                    <span className="hidden sm:inline-flex items-center space-x-1 px-1.5 py-0.5 rounded bg-indigo-500/20 border border-indigo-400/30 text-indigo-200 text-[9px] font-sans font-medium truncate max-w-[160px]">
+                      <span>🧠</span>
+                      <span className="truncate">{currentSpeechLine.context_domain}</span>
+                    </span>
+                  )}
                   {currentSpeechLine.resource && (
                     <span className="text-emerald-300 font-sans font-semibold truncate">
                       Source: {currentSpeechLine.resource}

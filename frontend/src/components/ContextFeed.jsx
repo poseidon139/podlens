@@ -30,7 +30,8 @@ export default function ContextFeed({
   currentTime = 0,
   onJumpToTime,
   isWsConnected = false,
-  onOpenVerify
+  onOpenVerify,
+  sessionContext = null
 }) {
   const [activeTab, setActiveTab] = useState('SPEECH_LOG'); // 'SPEECH_LOG' | 'CLAIMS_DOSSIER'
   const [statusFilter, setStatusFilter] = useState('ALL');
@@ -108,6 +109,35 @@ export default function ContextFeed({
           </button>
         </div>
       </div>
+
+      {/* Active Knowledge Profile & Domain Context Strip */}
+      {sessionContext?.domain && (
+        <div className="px-3.5 py-2 bg-indigo-950/40 border-b border-indigo-900/40 flex flex-col space-y-1.5">
+          <div className="flex items-center justify-between text-[11px]">
+            <div className="flex items-center space-x-1.5 min-w-0">
+              <span className="text-xs">🧠</span>
+              <span className="font-semibold text-indigo-200 truncate">{sessionContext.domain}</span>
+            </div>
+            {sessionContext.speaker && (
+              <span className="text-slate-400 text-[10px] truncate max-w-[120px]">
+                {sessionContext.speaker}
+              </span>
+            )}
+          </div>
+          {sessionContext.key_entities && sessionContext.key_entities.length > 0 && (
+            <div className="flex items-center space-x-1 overflow-x-auto py-0.5 text-[9px] font-mono text-indigo-300">
+              {sessionContext.key_entities.slice(0, 4).map((entity, i) => (
+                <span
+                  key={i}
+                  className="shrink-0 px-1.5 py-0.5 rounded bg-indigo-900/50 border border-indigo-700/40"
+                >
+                  {entity}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Sub-Header: Filters or Live Feed Indicator */}
       {activeTab === 'CLAIMS_DOSSIER' ? (

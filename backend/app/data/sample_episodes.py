@@ -1,5 +1,5 @@
 from typing import Dict, List
-from ..models.schemas import Session, Claim, ClaimStatus, BadgeColor, ClaimCategory, Citation, DossierMetrics
+from ..models.schemas import Session, Claim, ClaimStatus, BadgeColor, ClaimCategory, Citation, DossierMetrics, VideoContext
 
 SAMPLE_EPISODES: Dict[str, Session] = {
     "huberman_fasting": Session(
@@ -18,6 +18,13 @@ SAMPLE_EPISODES: Dict[str, Session] = {
             unsupported=1,
             total_claims=5,
             truth_score=40.0
+        ),
+        context=VideoContext(
+            domain="Metabolic Physiology & Fasting Protocols",
+            primary_topic="Intermittent Fasting, Autophagy & Circadian Biology",
+            speaker="Dr. Andrew Huberman",
+            summary="Physiological examination of time-restricted feeding, glycogen depletion, cellular autophagy, and metabolic markers.",
+            key_entities=["time-restricted feeding", "autophagy", "glycogen", "insulin", "circadian biology", "mTOR", "AMPK", "ketones", "metabolic health"]
         ),
         created_at="2026-10-15T10:00:00Z"
     ),
@@ -38,6 +45,13 @@ SAMPLE_EPISODES: Dict[str, Session] = {
             total_claims=4,
             truth_score=75.0
         ),
+        context=VideoContext(
+            domain="Artificial Intelligence & Distributed Systems",
+            primary_topic="Scaling Laws, Transformer Architectures & Energy Constraints",
+            speaker="Lex Fridman",
+            summary="Discussion on frontier model training dynamics, Chinchilla compute optimality, synthetic data, and gigawatt datacenters.",
+            key_entities=["scaling laws", "GPU clusters", "transformer", "Chinchilla compute optimal", "synthetic data", "gigawatt capacity", "inference latency", "nuclear power"]
+        ),
         created_at="2026-10-15T11:00:00Z"
     ),
     "all_in_clean_energy": Session(
@@ -56,6 +70,13 @@ SAMPLE_EPISODES: Dict[str, Session] = {
             unsupported=1,
             total_claims=4,
             truth_score=50.0
+        ),
+        context=VideoContext(
+            domain="Energy Infrastructure & Clean Tech Economics",
+            primary_topic="Global EV Battery Supply Chain & Power Grid Modernization",
+            speaker="All-In Podcast",
+            summary="Market and engineering analysis of battery manufacturing gigafactories, mineral refining, and electric grid transmission capacity.",
+            key_entities=["EV battery manufacturing", "lithium-ion supply chain", "grid transmission capacity", "clean tech economics", "gigawatt hours", "energy storage"]
         ),
         created_at="2026-10-15T12:00:00Z"
     )

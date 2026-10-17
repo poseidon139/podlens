@@ -55,6 +55,13 @@ class DossierMetrics(BaseModel):
     total_claims: int = 0
     truth_score: float = Field(100.0, description="Percentage of verified vs total claims")
 
+class VideoContext(BaseModel):
+    domain: str = Field("General Science & Empirical Research", description="Primary domain of the video content")
+    primary_topic: str = Field("Empirical Analysis", description="Core topic or theme of the discussion")
+    speaker: str = Field("Speaker", description="Primary speaker or host")
+    summary: str = Field("", description="Brief synopsis of context")
+    key_entities: List[str] = Field(default_factory=list, description="Key domain concepts, terminology, or entities")
+
 class Session(BaseModel):
     session_id: str
     title: str
@@ -66,6 +73,7 @@ class Session(BaseModel):
     stream_ws_url: Optional[str] = None
     total_claims: int = 0
     metrics: DossierMetrics = Field(default_factory=DossierMetrics)
+    context: Optional[VideoContext] = None
     created_at: Optional[str] = None
 
 class IngestSessionRequest(BaseModel):
@@ -97,5 +105,7 @@ class TranscriptLine(BaseModel):
     claim_id: Optional[str] = None
     verdict_summary: Optional[str] = None
     resource: Optional[str] = None
+    context_domain: Optional[str] = None
+
 
 
