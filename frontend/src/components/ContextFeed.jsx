@@ -187,19 +187,21 @@ export default function ContextFeed({
                     className={`relative p-3 rounded-xl border text-xs cursor-pointer transition-all duration-300 animate-in fade-in slide-in-from-top-1 ${
                       isCurrent
                         ? line.badge_color === 'green'
-                          ? 'bg-emerald-950/70 border-emerald-500/80 shadow-lg shadow-emerald-950/50 ring-2 ring-emerald-500/40'
+                          ? 'bg-emerald-950/80 border-emerald-500/80 shadow-lg shadow-emerald-950/50 ring-2 ring-emerald-500/40 text-emerald-100'
                           : line.badge_color === 'amber'
-                          ? 'bg-amber-950/70 border-amber-500/80 shadow-lg shadow-amber-950/50 ring-2 ring-amber-500/40'
+                          ? 'bg-amber-950/80 border-amber-500/80 shadow-lg shadow-amber-950/50 ring-2 ring-amber-500/40 text-amber-100'
                           : line.badge_color === 'red'
-                          ? 'bg-rose-950/70 border-rose-500/80 shadow-lg shadow-rose-950/50 ring-2 ring-rose-500/40'
-                          : 'bg-indigo-950/70 border-indigo-500/80 shadow-lg shadow-indigo-950/50 ring-2 ring-indigo-500/40'
+                          ? 'bg-rose-950/80 border-rose-500/80 shadow-lg shadow-rose-950/50 ring-2 ring-rose-500/40 text-rose-100'
+                          : 'bg-slate-900/90 border-slate-600/80 shadow-lg shadow-black/50 ring-2 ring-white/30 text-white'
+                        : line.badge_color === 'green'
+                        ? 'bg-emerald-950/30 border-emerald-500/30 text-emerald-200'
                         : index === 1
-                        ? 'bg-slate-900/80 border-slate-800 text-slate-200'
+                        ? 'bg-slate-900/80 border-slate-800 text-white'
                         : index === 2
-                        ? 'bg-slate-900/60 border-slate-800/80 text-slate-300 opacity-90'
+                        ? 'bg-slate-900/60 border-slate-800/80 text-slate-200 opacity-90'
                         : index === 3
-                        ? 'bg-slate-900/40 border-slate-800/60 text-slate-400 opacity-75'
-                        : 'bg-slate-950/40 border-slate-900 text-slate-500 opacity-60'
+                        ? 'bg-slate-900/40 border-slate-800/60 text-slate-300 opacity-75'
+                        : 'bg-slate-950/40 border-slate-900 text-slate-400 opacity-60'
                     }`}
                   >
                     <div className="flex items-center justify-between mb-1.5 gap-2">
@@ -208,11 +210,11 @@ export default function ContextFeed({
                         <span className={`px-1.5 py-0.5 rounded font-mono text-[10px] font-semibold transition ${
                           isCurrent
                             ? 'bg-white text-slate-950 font-bold'
-                            : 'bg-slate-800 text-slate-400'
+                            : 'bg-slate-800 text-slate-300'
                         }`}>
                           {formatTime(line.start)}
                         </span>
-                        <span className="font-semibold text-slate-300 text-[11px] truncate max-w-[130px]">
+                        <span className="font-semibold text-slate-200 text-[11px] truncate max-w-[130px]">
                           {line.speaker || 'Speaker'}
                         </span>
                       </div>
@@ -226,12 +228,12 @@ export default function ContextFeed({
                             ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40'
                             : line.badge_color === 'red'
                             ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-                            : 'bg-slate-800 text-slate-400 border border-slate-700'
+                            : 'bg-white/10 text-white border border-white/20'
                         }`}>
-                          {line.badge_color === 'green' && <ShieldCheck className="w-3 h-3 text-emerald-400" />}
-                          {line.badge_color === 'amber' && <AlertTriangle className="w-3 h-3 text-amber-400" />}
-                          {line.badge_color === 'red' && <XCircle className="w-3 h-3 text-rose-400" />}
-                          {line.badge_color === 'blue' && <Sparkles className="w-3 h-3 text-indigo-400" />}
+                          {line.badge_color === 'green' ? <ShieldCheck className="w-3 h-3 text-emerald-400" /> :
+                           line.badge_color === 'amber' ? <AlertTriangle className="w-3 h-3 text-amber-400" /> :
+                           line.badge_color === 'red' ? <XCircle className="w-3 h-3 text-rose-400" /> :
+                           <Sparkles className="w-3 h-3 text-white" />}
                           <span>{line.status}</span>
                         </span>
 
@@ -246,10 +248,18 @@ export default function ContextFeed({
 
                     {/* Speech Text */}
                     <p className={`leading-relaxed text-[12px] font-medium ${
-                      isCurrent ? 'text-white font-semibold' : 'text-slate-200'
+                      isCurrent ? 'text-white font-semibold' : 'text-slate-100'
                     }`}>
                       "{line.text}"
                     </p>
+
+                    {/* Supporting Resource Label if Verified Fact */}
+                    {line.resource && (
+                      <div className="mt-1.5 flex items-center space-x-1 text-[11px] text-emerald-300 font-medium">
+                        <span className="font-semibold text-emerald-400">Supporting Resource:</span>
+                        <span className="truncate">{line.resource}</span>
+                      </div>
+                    )}
 
                     {/* Fact-check consensus explanation on active sentence */}
                     {line.verdict_summary && isCurrent && (
@@ -260,8 +270,8 @@ export default function ContextFeed({
                     )}
 
                     {line.claim_id && (
-                      <div className="mt-1.5 flex items-center space-x-1 text-[10px] text-indigo-400 font-medium">
-                        <span>Empirical Claim Link</span>
+                      <div className="mt-1.5 flex items-center space-x-1 text-[10px] text-emerald-400 font-medium">
+                        <span>Empirical Claim Dossier</span>
                         <ExternalLink className="w-2.5 h-2.5 ml-0.5 opacity-80" />
                       </div>
                     )}

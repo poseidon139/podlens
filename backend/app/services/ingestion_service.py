@@ -296,6 +296,8 @@ class IngestionService:
         curr_end = curr_start
         line_idx = 1
 
+        EOS_PATTERN = re.compile(r'[\.\?\!][\"\'\)]?$')
+
         for s in snippets:
             t = str(s.get("text", "")).strip()
             if not t:
@@ -303,41 +305,40 @@ class IngestionService:
             curr_text.append(t)
             curr_end = s["start"] + s.get("duration", 2.0)
             
-            # Natural sentence break or 5s grouping
-            if t.endswith(('.', '?', '!', ':')) or (curr_end - curr_start >= 5.0):
+            is_eos = bool(EOS_PATTERN.search(t))
+            words_count = sum(len(x.split()) for x in curr_text)
+            
+            # Keep complete sentence or paragraph together - never break mid-sentence!
+            if is_eos or (words_count >= 25 and t.endswith((',', ';', '--', '-'))):
                 start = round(curr_start, 2)
                 end = round(curr_end, 2)
                 dur = round(max(1.0, end - start), 2)
-                full_text = " ".join(curr_text).replace("\n", " ")
+                full_text = re.sub(r'\s+', ' ', " ".join(curr_text).replace("\n", " ")).strip()
 
-                # Find any overlapping claim
+                # Find any overlapping verified claim with supporting research citations
                 matching_claim = next((c for c in claims if not (end < c.timestamp_start or start > c.timestamp_end)), None)
                 
-                if matching_claim:
-                    status = matching_claim.status.value
-                    color = matching_claim.badge_color.value
-                    claim_id = matching_claim.id
-                    summary = matching_claim.verdict_summary
-                    spk = matching_claim.speaker
-                else:
-                    lower_text = full_text.lower()
-                    if any(w in lower_text for w in ["welcome", "podcast", "today we're talking", "professor", "stanford", "subscribe", "thank you", "hello", "introduction"]):
-                        status = "INFO"
-                        color = "blue"
-                        summary = "Conversational dialogue and topic introduction"
-                    elif any(w in lower_text for w in ["cannot", "never", "myth", "wrong", "false", "doesn't work", "untrue", "debunk"]):
-                        status = "UNSUPPORTED"
-                        color = "red"
-                        summary = "Contains unverified categorical or negative assertion"
-                    elif any(w in lower_text for w in ["theory", "maybe", "depends", "could have", "in mice", "rodent", "debatable", "contested"]):
+                if matching_claim and matching_claim.citations:
+                    if matching_claim.status.value == "VERIFIED":
+                        status = "VERIFIED FACT"
+                        color = "green"
+                    elif matching_claim.status.value == "CONTESTED":
                         status = "CONTESTED"
                         color = "amber"
-                        summary = "Nuanced or extrapolative claim requiring translational context"
                     else:
-                        status = "VERIFIED"
-                        color = "green"
-                        summary = "Consistent with physiological consensus or peer-reviewed literature"
+                        status = "UNSUPPORTED"
+                        color = "red"
+                    summary = matching_claim.verdict_summary
+                    claim_id = matching_claim.id
+                    spk = matching_claim.speaker
+                    resource = matching_claim.citations[0].source
+                else:
+                    # Normal speech appears white
+                    status = "NORMAL SPEECH"
+                    color = "white"
+                    summary = None
                     claim_id = None
+                    resource = None
                     spk = "Dr. Andrew Huberman" if "huberman" in session_id else ("Lex Fridman" if "lex" in session_id else "Speaker")
 
                 lines.append(TranscriptLine(
@@ -350,7 +351,8 @@ class IngestionService:
                     status=status,
                     badge_color=color,
                     claim_id=claim_id,
-                    verdict_summary=summary
+                    verdict_summary=summary,
+                    resource=resource
                 ))
                 line_idx += 1
                 curr_text = []
@@ -364,11 +366,12 @@ class IngestionService:
                 start=start,
                 duration=round(max(1.0, end - start), 2),
                 end=end,
-                text=" ".join(curr_text).replace("\n", " "),
+                text=re.sub(r'\s+', ' ', " ".join(curr_text).replace("\n", " ")).strip(),
                 speaker="Speaker",
-                status="INFO",
-                badge_color="blue",
-                verdict_summary="Concluding remarks"
+                status="NORMAL SPEECH",
+                badge_color="white",
+                verdict_summary=None,
+                resource=None
             ))
 
         return lines

@@ -92,8 +92,10 @@ class TranscriptLine(BaseModel):
     end: float
     text: str
     speaker: str = "Speaker"
-    status: str = "VERIFIED"
-    badge_color: str = "green"
+    status: str = "NORMAL SPEECH"
+    badge_color: str = "white"
     claim_id: Optional[str] = None
     verdict_summary: Optional[str] = None
+    resource: Optional[str] = None
+
 
