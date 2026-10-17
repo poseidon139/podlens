@@ -169,6 +169,12 @@ export default function App() {
   };
 
   const handleIngestSession = async (payload) => {
+    // Immediately clear state so no previous video data is visible
+    setClaims([]);
+    setTranscriptLines([]);
+    setActiveClaimId(null);
+    setCurrentTime(0);
+
     const newSession = await createSession(payload);
     // Refresh sessions list
     const updatedSessions = await fetchSessions();

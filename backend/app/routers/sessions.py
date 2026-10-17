@@ -65,3 +65,21 @@ def get_session_transcript(session_id: str):
     
     return ingestion_service.get_session_transcript_lines(session_id)
 
+@router.delete("/{session_id}", status_code=200)
+def delete_session(session_id: str):
+    """
+    Delete a session and all its associated claims
+    """
+    session = firestore_service.get_session(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    # Also clean up in-memory transcript cache
+    ingestion_service.clear_session_data(session_id)
+    
+    success = firestore_service.delete_session(session_id)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to delete session")
+    return {"status": "deleted", "session_id": session_id}
+
+

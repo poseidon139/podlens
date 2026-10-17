@@ -103,11 +103,6 @@ class FirestoreService:
             
         return sorted(claims, key=lambda c: c.timestamp_start)
 
-        if min_status:
-            claims = [c for c in claims if c.status.value == min_status]
-            
-        return sorted(claims, key=lambda c: c.timestamp_start)
-
     def save_claim(self, claim: Claim):
         sid = claim.session_id
         if sid not in self._in_memory_claims:
@@ -150,6 +145,27 @@ class FirestoreService:
             session.total_claims = total
             session.metrics = metrics
             self.save_session(session)
+
+    def delete_session(self, session_id: str) -> bool:
+        """Completely purge session, all its claims, and local cache"""
+        if session_id in self._in_memory_sessions:
+            del self._in_memory_sessions[session_id]
+        if session_id in self._in_memory_claims:
+            del self._in_memory_claims[session_id]
+
+        if self.db:
+            try:
+                # Delete claims subcollection
+                claims_col = self.db.collection("sessions").document(session_id).collection("claims")
+                for doc in claims_col.stream():
+                    doc.reference.delete()
+                # Delete main session document
+                self.db.collection("sessions").document(session_id).delete()
+                logger.info(f"Purged session {session_id} and claims from Firestore")
+            except Exception as e:
+                logger.error(f"Error deleting session {session_id} from Firestore: {e}")
+                return False
+        return True
 
     def export_dossier_markdown(self, session_id: str) -> str:
         session = self.get_session(session_id)
