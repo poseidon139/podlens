@@ -142,17 +142,22 @@ def health_check():
 frontend_dist_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "frontend", "dist")
 
 if os.path.exists(frontend_dist_path):
-    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist_path, "assets")), name="assets")
+    assets_dir = os.path.join(frontend_dist_path, "assets")
+    if os.path.exists(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
     
     @app.api_route("/{full_path:path}", methods=["GET", "HEAD"], include_in_schema=False)
     async def serve_spa(full_path: str):
         # Don't intercept API or WS paths
         if full_path.startswith("api/") or full_path.startswith("ws/"):
-            return None
+            return JSONResponse(status_code=404, content={"detail": "Not Found"})
         file_path = os.path.join(frontend_dist_path, full_path)
         if os.path.isfile(file_path):
             return FileResponse(file_path)
-        return FileResponse(os.path.join(frontend_dist_path, "index.html"))
+        index_file = os.path.join(frontend_dist_path, "index.html")
+        if os.path.isfile(index_file):
+            return FileResponse(index_file)
+        return JSONResponse(status_code=200, content={"status": "PodLens API ready"})
 else:
     @app.get("/", tags=["Info"])
     def root_info():

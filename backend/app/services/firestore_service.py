@@ -17,8 +17,8 @@ class FirestoreService:
         self._load_seed_data()
 
     def _init_firestore(self):
-        """Initialize Google Cloud Firestore client if credentials/project are available"""
-        if settings.GCP_PROJECT_ID:
+        """Initialize Google Cloud Firestore client if credentials/project are available and not in demo mode"""
+        if settings.GCP_PROJECT_ID and not settings.DEMO_MODE:
             try:
                 from google.cloud import firestore
                 self.db = firestore.Client(
@@ -30,26 +30,18 @@ class FirestoreService:
                 logger.warning(f"Could not connect to Cloud Firestore: {e}. Using fast in-memory store.")
                 self.db = None
         else:
-            logger.info("No GCP_PROJECT_ID provided. Using fast in-memory store.")
+            if settings.DEMO_MODE:
+                logger.info("DEMO_MODE=true: Using fast in-memory store for instant container startup.")
+            else:
+                logger.info("No GCP_PROJECT_ID provided. Using fast in-memory store.")
             self.db = None
 
     def _load_seed_data(self):
-        """Seed pre-grounded episodes for immediate zero-config demo experience"""
+        """Seed pre-grounded episodes in-memory for immediate, zero-latency startup"""
         for sid, sess in SAMPLE_EPISODES.items():
             self._in_memory_sessions[sid] = sess
         for sid, claims in SAMPLE_CLAIMS.items():
             self._in_memory_claims[sid] = list(claims)
-
-        # If connected to live Firestore, ensure sample episodes and claims are synchronized
-        if self.db:
-            try:
-                for sid, sess in SAMPLE_EPISODES.items():
-                    doc_ref = self.db.collection("sessions").document(sid)
-                    doc_ref.set(sess.model_dump())
-                    for c in SAMPLE_CLAIMS.get(sid, []):
-                        doc_ref.collection("claims").document(c.id).set(c.model_dump())
-            except Exception as e:
-                logger.warning(f"Could not auto-seed sample episodes to Firestore: {e}")
 
     def get_session(self, session_id: str) -> Optional[Session]:
         if self.db:
