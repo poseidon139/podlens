@@ -54,7 +54,7 @@ jobs:
       - name: Deploy to Cloud Run
         run: |
           echo "Deploying new revision to Cloud Run..."
-          gcloud run deploy "${SERVICE_NAME}" \
+          if ! gcloud run deploy "${SERVICE_NAME}" \
             --image="${IMAGE_NAME}:${{ github.sha }}" \
             --region="${REGION}" \
             --project="${PROJECT_ID}" \
@@ -65,5 +65,11 @@ jobs:
             --cpu=1 \
             --cpu-boost \
             --timeout=300 \
-            --set-env-vars="GCP_PROJECT_ID=${PROJECT_ID},GCP_LOCATION=${REGION},GEMINI_MODEL=gemini-1.5-flash-001,FIRESTORE_DATABASE=(default),DEMO_MODE=true,PYTHONUNBUFFERED=1"
+            --set-env-vars="GCP_PROJECT_ID=${PROJECT_ID},GCP_LOCATION=${REGION},GEMINI_MODEL=gemini-1.5-flash-001,FIRESTORE_DATABASE=(default),DEMO_MODE=true,PYTHONUNBUFFERED=1"; then
+              echo "================================================================"
+              echo "!!! CLOUD RUN DEPLOYMENT FAILED - FETCHING REVISION LOGS !!!"
+              echo "================================================================"
+              gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="podlens"' --project="${PROJECT_ID}" --limit=100 --format="table(timestamp,severity,textPayload,jsonPayload.message)"
+              exit 1
+          fi
 
