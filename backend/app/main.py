@@ -45,8 +45,8 @@ async def security_guardrails_middleware(request: Request, call_next):
     - Injects security headers.
     """
     path = request.url.path
-    # Exempt static assets, root SPA, websocket probes, and health check from rate limits
-    if path in ("/", "/healthz") or request.method in ("HEAD", "OPTIONS") or path.startswith("/assets") or path.startswith("/ws/"):
+    # Exempt non-API paths (static assets, root SPA, health check, WebSockets) from rate limiting
+    if not path.startswith("/api/"):
         return await call_next(request)
 
     client_ip = request.client.host if request.client else "unknown"

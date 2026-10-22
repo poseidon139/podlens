@@ -28,10 +28,8 @@ COPY backend/requirements.txt ./backend/requirements.txt
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r ./backend/requirements.txt
 
-# Copy backend code and entrypoint
+# Copy backend code
 COPY backend/ ./backend/
-COPY entrypoint.sh ./entrypoint.sh
-RUN chmod +x ./entrypoint.sh
 
 # Copy built frontend assets from stage 1 into frontend/dist
 COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
@@ -39,8 +37,7 @@ COPY --from=frontend-builder /app/frontend/dist ./frontend/dist
 # Cloud Run default port is 8080
 ENV PORT=8080
 ENV PYTHONUNBUFFERED=1
-ENV PYTHONPATH=/app
 
 EXPOSE 8080
 
-CMD ["/bin/sh", "/app/entrypoint.sh"]
+CMD ["sh", "-c", "uvicorn backend.app.main:app --host 0.0.0.0 --port ${PORT:-8080}"]

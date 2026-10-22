@@ -45,6 +45,25 @@ jobs:
             -t "${IMAGE_NAME}:${{ github.sha }}" \
             -t "${IMAGE_NAME}:latest" .
 
+      - name: Validate Container Health on Runner
+        run: |
+          echo "Starting container locally to verify port 8080 health check..."
+          docker run -d --name podlens-test -p 8080:8080 \
+            -e GCP_PROJECT_ID="${PROJECT_ID}" \
+            -e GCP_LOCATION="${REGION}" \
+            -e DEMO_MODE=true \
+            -e PORT=8080 \
+            "${IMAGE_NAME}:${{ github.sha }}"
+          
+          sleep 4
+          echo "=== CONTAINER STARTUP LOGS ==="
+          docker logs podlens-test
+          echo "=============================="
+          
+          echo "Probing http://127.0.0.1:8080/healthz ..."
+          curl -f http://127.0.0.1:8080/healthz
+          docker stop podlens-test
+
       - name: Push Container Image to Artifact Registry
         run: |
           echo "Pushing container image to Artifact Registry..."
@@ -54,7 +73,7 @@ jobs:
       - name: Deploy to Cloud Run
         run: |
           echo "Deploying new revision to Cloud Run..."
-          if ! gcloud run deploy "${SERVICE_NAME}" \
+          gcloud run deploy "${SERVICE_NAME}" \
             --image="${IMAGE_NAME}:${{ github.sha }}" \
             --region="${REGION}" \
             --project="${PROJECT_ID}" \
@@ -65,12 +84,5 @@ jobs:
             --cpu=1 \
             --cpu-boost \
             --timeout=300 \
-            --set-env-vars="GCP_PROJECT_ID=${PROJECT_ID},GCP_LOCATION=${REGION},GEMINI_MODEL=gemini-1.5-flash-001,FIRESTORE_DATABASE=(default),DEMO_MODE=true,PYTHONUNBUFFERED=1"; then
-              echo "================================================================"
-              echo "!!! CLOUD RUN DEPLOYMENT FAILED - FETCHING REVISION LOGS !!!"
-              echo "================================================================"
-              gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="podlens"' --project="${PROJECT_ID}" --limit=50 --format="value(textPayload)" || true
-              gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="podlens"' --project="${PROJECT_ID}" --limit=20 --format="json(timestamp,jsonPayload)" || true
-              exit 1
-          fi
+            --set-env-vars="GCP_PROJECT_ID=${PROJECT_ID},GCP_LOCATION=${REGION},GEMINI_MODEL=gemini-1.5-flash-001,FIRESTORE_DATABASE=(default),DEMO_MODE=true,PYTHONUNBUFFERED=1"
 
