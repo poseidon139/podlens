@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Query, Response
-from typing import List
+from typing import List, Literal
 from ..models.schemas import Session, IngestSessionRequest, TranscriptLine
 from ..services.firestore_service import firestore_service
 from ..services.ingestion_service import ingestion_service
@@ -38,7 +38,7 @@ def get_session(session_id: str):
     return session
 
 @router.get("/{session_id}/dossier/export")
-def export_dossier(session_id: str, format: str = Query("markdown", enum=["markdown", "json"])):
+def export_dossier(session_id: str, format: Literal["markdown", "json"] = "markdown"):
     """
     Export the post-episode truth & credibility dossier in Markdown or JSON
     """
