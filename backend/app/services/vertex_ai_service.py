@@ -68,9 +68,20 @@ Output ONLY raw JSON.
 
 class VertexAIService:
     def __init__(self):
-        self.client = None
+        self._client = None
+        self._initialized = False
         self.is_vertex = False
-        self._init_client()
+
+    @property
+    def client(self):
+        if not self._initialized:
+            self._initialized = True
+            self._init_client()
+        return self._client
+
+    @client.setter
+    def client(self, value):
+        self._client = value
 
     def _init_client(self):
         """Initialize Google GenAI client (Vertex AI or API Key)"""

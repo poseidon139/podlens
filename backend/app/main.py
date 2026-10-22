@@ -41,12 +41,12 @@ async def security_guardrails_middleware(request: Request, call_next):
     """
     Ingestion Controls & Guardrail Middleware:
     - Enforces sliding-window rate limits to prevent automated execution abuse.
-    - Implements request timeout guardrails to protect Cloud Run resources.
     - Emits structured telemetry records for incoming API requests.
+    - Injects security headers.
     """
     path = request.url.path
-    # Exempt static assets, websocket probes, and health check from rate limits
-    if path.startswith("/assets") or path == "/healthz" or path.startswith("/ws/"):
+    # Exempt static assets, root SPA, websocket probes, and health check from rate limits
+    if path in ("/", "/healthz") or request.method in ("HEAD", "OPTIONS") or path.startswith("/assets") or path.startswith("/ws/"):
         return await call_next(request)
 
     client_ip = request.client.host if request.client else "unknown"
@@ -93,23 +93,14 @@ async def security_guardrails_middleware(request: Request, call_next):
 
     _ip_request_timestamps[client_ip].append(current_time)
 
-    # 4. Request Timeout Guardrail (enforces maximum request processing duration)
-    try:
-        response = await asyncio.wait_for(call_next(request), timeout=settings.REQUEST_TIMEOUT_SECONDS)
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "SAMEORIGIN"
-        return response
-    except asyncio.TimeoutError:
-        audit_logger.log_event(
-            event_type="REQUEST_TIMEOUT_TRIGGERED",
-            message=f"Request to {path} timed out after {settings.REQUEST_TIMEOUT_SECONDS}s",
-            severity="ERROR",
-            audit_data={"client_ip": client_ip, "path": path, "timeout": settings.REQUEST_TIMEOUT_SECONDS}
-        )
-        return JSONResponse(
-            status_code=504,
-            content={"detail": "Gateway Timeout: Request execution exceeded processing timeout threshold."}
-        )
+    response = await call_next(request)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "SAMEORIGIN"
+    return response
+
+@app.on_event("startup")
+async def on_startup():
+    logger.info("PodLens production application started successfully. Listening for requests.")
 
 # API Routers
 app.include_router(sessions.router, prefix=settings.API_V1_STR)

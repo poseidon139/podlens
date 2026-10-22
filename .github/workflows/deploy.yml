@@ -69,7 +69,8 @@ jobs:
               echo "================================================================"
               echo "!!! CLOUD RUN DEPLOYMENT FAILED - FETCHING REVISION LOGS !!!"
               echo "================================================================"
-              gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="podlens"' --project="${PROJECT_ID}" --limit=100 --format="table(timestamp,severity,textPayload,jsonPayload.message)"
+              gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="podlens"' --project="${PROJECT_ID}" --limit=50 --format="value(textPayload)" || true
+              gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="podlens"' --project="${PROJECT_ID}" --limit=20 --format="json(timestamp,jsonPayload)" || true
               exit 1
           fi
 

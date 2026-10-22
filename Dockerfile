@@ -43,4 +43,4 @@ ENV PYTHONPATH=/app
 
 EXPOSE 8080
 
-CMD ["./entrypoint.sh"]
+CMD ["/bin/sh", "/app/entrypoint.sh"]

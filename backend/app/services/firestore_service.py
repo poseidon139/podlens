@@ -9,32 +9,43 @@ logger = logging.getLogger("podlens.firestore")
 
 class FirestoreService:
     def __init__(self):
-        self.db = None
+        self._db = None
+        self._db_initialized = False
         self._in_memory_sessions: Dict[str, Session] = {}
         self._in_memory_claims: Dict[str, List[Claim]] = {}
         self._in_memory_feedback: List[ClaimFeedback] = []
-        self._init_firestore()
         self._load_seed_data()
 
+    @property
+    def db(self):
+        if not self._db_initialized:
+            self._db_initialized = True
+            self._init_firestore()
+        return self._db
+
+    @db.setter
+    def db(self, value):
+        self._db = value
+
     def _init_firestore(self):
-        """Initialize Google Cloud Firestore client if credentials/project are available and not in demo mode"""
+        """Initialize Google Cloud Firestore client lazily if credentials/project are available and not in demo mode"""
         if settings.GCP_PROJECT_ID and not settings.DEMO_MODE:
             try:
                 from google.cloud import firestore
-                self.db = firestore.Client(
+                self._db = firestore.Client(
                     project=settings.GCP_PROJECT_ID,
                     database=settings.FIRESTORE_DATABASE
                 )
                 logger.info(f"Connected to Cloud Firestore in project '{settings.GCP_PROJECT_ID}' (db: {settings.FIRESTORE_DATABASE})")
             except Exception as e:
                 logger.warning(f"Could not connect to Cloud Firestore: {e}. Using fast in-memory store.")
-                self.db = None
+                self._db = None
         else:
             if settings.DEMO_MODE:
                 logger.info("DEMO_MODE=true: Using fast in-memory store for instant container startup.")
             else:
                 logger.info("No GCP_PROJECT_ID provided. Using fast in-memory store.")
-            self.db = None
+            self._db = None
 
     def _load_seed_data(self):
         """Seed pre-grounded episodes in-memory for immediate, zero-latency startup"""
