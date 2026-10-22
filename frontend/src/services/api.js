@@ -59,3 +59,13 @@ export function getExportUrl(sessionId, format = 'markdown') {
   return `${API_BASE}/sessions/${sessionId}/dossier/export?format=${format}`;
 }
 
+export async function submitClaimFeedback(sessionId, claimId, feedbackData) {
+  const res = await fetch(`${API_BASE}/sessions/${sessionId}/claims/${claimId}/feedback`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(feedbackData),
+  });
+  if (!res.ok) throw new Error('Failed to submit claim feedback');
+  return res.json();
+}
+

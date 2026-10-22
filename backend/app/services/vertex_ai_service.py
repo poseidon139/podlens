@@ -1,9 +1,12 @@
 import json
 import logging
 import re
+import time
 from typing import List, Optional, Dict, Any
 from ..config import settings
 from ..models.schemas import Claim, ExtractedClaim, ClaimStatus, BadgeColor, ClaimCategory, Citation, VideoContext
+from .sanitizer import sanitize_text, detect_prompt_injection
+from .audit_logger import audit_logger
 
 logger = logging.getLogger("podlens.vertex_ai")
 
@@ -92,12 +95,53 @@ class VertexAIService:
             logger.warning(f"Could not initialize Google GenAI SDK: {e}. Fallback mode active.")
             self.client = None
 
+    def _get_safety_settings(self):
+        """
+        Configures explicit Google GenAI safety settings across all mandatory categories
+        to adhere strictly to Google Cloud's Acceptable Use Policy (AUP).
+        """
+        try:
+            from google.genai import types
+            threshold_map = {
+                "BLOCK_LOW_AND_ABOVE": types.HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
+                "BLOCK_MEDIUM_AND_ABOVE": types.HarmBlockThreshold.BLOCK_MEDIUM_AND_ABOVE,
+                "BLOCK_ONLY_HIGH": types.HarmBlockThreshold.BLOCK_ONLY_HIGH,
+            }
+            thresh = threshold_map.get(settings.SAFETY_BLOCK_THRESHOLD, types.HarmBlockThreshold.BLOCK_LOW_AND_ABOVE)
+            return [
+                types.SafetySetting(
+                    category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+                    threshold=thresh,
+                ),
+                types.SafetySetting(
+                    category=types.HarmCategory.HARM_CATEGORY_HARASSMENT,
+                    threshold=thresh,
+                ),
+                types.SafetySetting(
+                    category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+                    threshold=thresh,
+                ),
+                types.SafetySetting(
+                    category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+                    threshold=thresh,
+                ),
+            ]
+        except Exception as e:
+            logger.warning(f"Could not construct GenAI safety settings: {e}")
+            return None
+
     def extract_claims(self, transcript_chunk: str, base_offset: float = 0.0, chunk_duration: float = 30.0, context: Optional[VideoContext] = None) -> List[ExtractedClaim]:
         """
-        Stage 1: Extract verifiable empirical claims from a transcript chunk, enriched by known video context
+        Stage 1: Extract verifiable empirical claims from a transcript chunk, enriched by known video context.
+        Applies input sanitization to guard against prompt injection attacks.
         """
+        # Guardrail: Input Sanitization
+        sanitized_chunk = sanitize_text(transcript_chunk, max_length=settings.MAX_INPUT_TEXT_LENGTH)
+        if detect_prompt_injection(transcript_chunk):
+            audit_logger.log_prompt_injection("transcript_chunk", transcript_chunk[:100])
+
         if not self.client:
-            return self._fallback_extract_claims(transcript_chunk, base_offset, chunk_duration, context=context)
+            return self._fallback_extract_claims(sanitized_chunk, base_offset, chunk_duration, context=context)
 
         context_hint = ""
         if context:
@@ -113,18 +157,23 @@ Use this domain context to interpret specialized jargon, acronyms, and extract e
         prompt = f"""Transcript Segment (Time: {base_offset:.1f}s to {base_offset + chunk_duration:.1f}s):
 {context_hint}
 \"\"\"
-{transcript_chunk}
+{sanitized_chunk}
 \"\"\"
 
 Extract all verifiable empirical claims from the segment."""
 
         try:
             from google.genai import types
-            config = types.GenerateContentConfig(
-                system_instruction=EXTRACTION_SYSTEM_PROMPT,
-                temperature=0.1,
-                response_mime_type="application/json"
-            )
+            safety = self._get_safety_settings()
+            config_kwargs = {
+                "system_instruction": EXTRACTION_SYSTEM_PROMPT,
+                "temperature": 0.1,
+                "response_mime_type": "application/json"
+            }
+            if safety:
+                config_kwargs["safety_settings"] = safety
+            config = types.GenerateContentConfig(**config_kwargs)
+
             response = self.client.models.generate_content(
                 model=settings.GEMINI_MODEL,
                 contents=prompt,
@@ -141,25 +190,47 @@ Extract all verifiable empirical claims from the segment."""
             extracted = []
             default_spk = (context.speaker if context and context.speaker else "Speaker")
             for item in data:
-                extracted.append(ExtractedClaim(
-                    claim_text=item.get("claim_text", ""),
-                    speaker=item.get("speaker", default_spk),
-                    category=item.get("category", ClaimCategory.SCIENCE_HEALTH),
-                    start_offset_seconds=float(item.get("start_offset_seconds", base_offset)),
-                    end_offset_seconds=float(item.get("end_offset_seconds", base_offset + chunk_duration)),
-                    search_query=item.get("search_query", item.get("claim_text", ""))
-                ))
+                raw_claim = item.get("claim_text", "")
+                clean_claim = sanitize_text(raw_claim, max_length=500)
+                if clean_claim:
+                    extracted.append(ExtractedClaim(
+                        claim_text=clean_claim,
+                        speaker=item.get("speaker", default_spk),
+                        category=item.get("category", ClaimCategory.SCIENCE_HEALTH),
+                        start_offset_seconds=float(item.get("start_offset_seconds", base_offset)),
+                        end_offset_seconds=float(item.get("end_offset_seconds", base_offset + chunk_duration)),
+                        search_query=sanitize_text(item.get("search_query", clean_claim), max_length=150)
+                    ))
             return extracted
         except Exception as e:
             logger.error(f"Error during claim extraction with Gemini: {e}")
-            return self._fallback_extract_claims(transcript_chunk, base_offset, chunk_duration, context=context)
+            return self._fallback_extract_claims(sanitized_chunk, base_offset, chunk_duration, context=context)
 
     def ground_and_verify_claim(self, extracted: ExtractedClaim, session_id: str, claim_id: str, context: Optional[VideoContext] = None) -> Claim:
         """
-        Stage 2: Ground the claim using Google Search Grounding tool and synthesize verdict with domain context
+        Stage 2: Ground the claim using Google Search Grounding tool and synthesize verdict with domain context.
+        Enforces strict safety thresholds, minimum confidence cutoffs, and fallback strategies.
         """
+        start_time = time.time()
+        # Guardrail: Input Sanitization on claim statement
+        extracted.claim_text = sanitize_text(extracted.claim_text, max_length=500)
+        if detect_prompt_injection(extracted.claim_text):
+            audit_logger.log_prompt_injection("claim_text", extracted.claim_text[:100])
+
         if not self.client:
-            return self._fallback_ground_claim(extracted, session_id, claim_id, context=context)
+            claim = self._fallback_ground_claim(extracted, session_id, claim_id, context=context)
+            audit_logger.log_grounding_eval(
+                session_id=session_id,
+                claim_id=claim_id,
+                claim_text=claim.claim_text,
+                status=claim.status.value,
+                confidence_score=claim.confidence_score or 0.90,
+                citations_count=len(claim.citations),
+                sources=[c.source for c in claim.citations],
+                latency_ms=(time.time() - start_time) * 1000,
+                is_fallback=True
+            )
+            return claim
 
         context_hint = ""
         if context:
@@ -177,19 +248,44 @@ Verify whether this statement matches current scientific literature, authoritati
         try:
             from google.genai import types
             
-            # Grounding configuration with Google Search
+            # Grounding configuration with Google Search and Safety Thresholds
             tools = [{"google_search": {}}]
-            config = types.GenerateContentConfig(
-                system_instruction=GROUNDING_SYNTHESIS_SYSTEM_PROMPT,
-                temperature=0.2,
-                tools=tools
-            )
+            safety = self._get_safety_settings()
+            config_kwargs = {
+                "system_instruction": GROUNDING_SYNTHESIS_SYSTEM_PROMPT,
+                "temperature": 0.2,
+                "tools": tools
+            }
+            if safety:
+                config_kwargs["safety_settings"] = safety
+            config = types.GenerateContentConfig(**config_kwargs)
             
             response = self.client.models.generate_content(
                 model=settings.GEMINI_MODEL,
                 contents=prompt,
                 config=config
             )
+
+            # Check for Safety Filter Interception
+            candidate = getattr(response, "candidates", [None])[0]
+            finish_reason = str(getattr(candidate, "finish_reason", ""))
+            if "SAFETY" in finish_reason:
+                audit_logger.log_safety_block(session_id, extracted.claim_text, finish_reason)
+                return Claim(
+                    id=claim_id,
+                    session_id=session_id,
+                    timestamp_start=extracted.start_offset_seconds,
+                    timestamp_end=extracted.end_offset_seconds,
+                    speaker=extracted.speaker or "Speaker",
+                    claim_text=extracted.claim_text,
+                    category=extracted.category,
+                    status=ClaimStatus.UNVERIFIED,
+                    badge_color=BadgeColor.GRAY,
+                    verdict_summary="Unverified / Content Flagged: The statement triggered Google Cloud content safety filters and could not be verified.",
+                    citations=[],
+                    confidence_score=0.0,
+                    search_query=extracted.search_query
+                )
             
             raw_text = response.text.strip()
             if raw_text.startswith("```"):
@@ -200,6 +296,8 @@ Verify whether this statement matches current scientific literature, authoritati
             
             status_val = data.get("status", "VERIFIED")
             badge_val = data.get("badge_color", "green")
+            verdict_summary = data.get("verdict_summary", "Claim evaluated against grounded literature.")
+            confidence_score = float(data.get("confidence_score", 0.92))
             
             citations = []
             for cit in data.get("primary_citations", []):
@@ -210,9 +308,8 @@ Verify whether this statement matches current scientific literature, authoritati
                 ))
 
             # If response also has native grounding metadata from Google Search
-            grounding_metadata = getattr(response, "candidates", [None])[0]
-            if grounding_metadata and hasattr(grounding_metadata, "grounding_metadata"):
-                meta = grounding_metadata.grounding_metadata
+            if candidate and hasattr(candidate, "grounding_metadata"):
+                meta = candidate.grounding_metadata
                 if hasattr(meta, "grounding_chunks") and meta.grounding_chunks:
                     for chunk in meta.grounding_chunks[:2]:
                         if hasattr(chunk, "web") and chunk.web:
@@ -222,7 +319,22 @@ Verify whether this statement matches current scientific literature, authoritati
                                 url=chunk.web.uri or "https://google.com"
                             ))
 
-            return Claim(
+            # Guardrail: If citations are empty, adjust confidence downwards
+            if not citations:
+                confidence_score = min(confidence_score, 0.40)
+
+            # Responsible AI Guardrail: Minimum Grounding Confidence Thresholds & Fallback
+            # Default to "Unverified / Missing Context" whenever confidence is low or sources ambiguous
+            if confidence_score < settings.MIN_GROUNDING_CONFIDENCE_CONTESTED or not citations:
+                status_val = "UNVERIFIED"
+                badge_val = "gray"
+                verdict_summary = "Unverified / Missing Context: Insufficient peer-reviewed evidence or ambiguous consensus to make a definitive determination."
+            elif status_val == "VERIFIED" and confidence_score < settings.MIN_GROUNDING_CONFIDENCE_VERIFIED:
+                status_val = "CONTESTED"
+                badge_val = "amber"
+                verdict_summary = f"{verdict_summary} (Degraded to Contested due to moderate confidence score: {confidence_score:.2f})"
+
+            claim = Claim(
                 id=claim_id,
                 session_id=session_id,
                 timestamp_start=extracted.start_offset_seconds,
@@ -230,16 +342,42 @@ Verify whether this statement matches current scientific literature, authoritati
                 speaker=extracted.speaker or "Speaker",
                 claim_text=extracted.claim_text,
                 category=extracted.category,
-                status=ClaimStatus(status_val) if status_val in ClaimStatus.__members__ else ClaimStatus.VERIFIED,
-                badge_color=BadgeColor(badge_val) if badge_val in ("green", "amber", "red") else BadgeColor.GREEN,
-                verdict_summary=data.get("verdict_summary", "Claim evaluated against grounded literature."),
+                status=ClaimStatus(status_val) if status_val in ClaimStatus.__members__ else ClaimStatus.UNVERIFIED,
+                badge_color=BadgeColor(badge_val) if badge_val in ("green", "amber", "red", "gray") else BadgeColor.GRAY,
+                verdict_summary=verdict_summary,
                 citations=citations,
-                confidence_score=0.95,
+                confidence_score=confidence_score,
                 search_query=extracted.search_query
             )
+
+            # Audit Telemetry Logging
+            audit_logger.log_grounding_eval(
+                session_id=session_id,
+                claim_id=claim_id,
+                claim_text=claim.claim_text,
+                status=claim.status.value,
+                confidence_score=confidence_score,
+                citations_count=len(citations),
+                sources=[c.source for c in citations],
+                latency_ms=(time.time() - start_time) * 1000,
+                is_fallback=False
+            )
+            return claim
         except Exception as e:
             logger.error(f"Error during grounding with Gemini Search: {e}")
-            return self._fallback_ground_claim(extracted, session_id, claim_id)
+            fallback = self._fallback_ground_claim(extracted, session_id, claim_id, context=context)
+            audit_logger.log_grounding_eval(
+                session_id=session_id,
+                claim_id=claim_id,
+                claim_text=fallback.claim_text,
+                status=fallback.status.value,
+                confidence_score=fallback.confidence_score or 0.85,
+                citations_count=len(fallback.citations),
+                sources=[c.source for c in fallback.citations],
+                latency_ms=(time.time() - start_time) * 1000,
+                is_fallback=True
+            )
+            return fallback
 
     def _fallback_extract_claims(self, text: str, base_offset: float, duration: float, context: Optional[VideoContext] = None) -> List[ExtractedClaim]:
         """Heuristic rule-based extractor when offline or without API key, powered by video context"""
@@ -283,10 +421,17 @@ Verify whether this statement matches current scientific literature, authoritati
         text_lower = extracted.claim_text.lower()
         domain_name = context.domain.lower() if (context and context.domain) else ""
 
-        if any(term in text_lower for term in ["resets", "doubles", "all", "entire", "never", "always"]):
+        if any(term in text_lower for term in ["unverified", "unclear", "no evidence", "anecdotal", "some say", "rumor", "speculation", "allegedly"]):
+            status = ClaimStatus.UNVERIFIED
+            badge = BadgeColor.GRAY
+            summary = "Unverified / Missing Context: Insufficient peer-reviewed evidence or ambiguous consensus to make a definitive determination."
+            citations = []
+            confidence = 0.45
+        elif any(term in text_lower for term in ["resets", "doubles", "all", "entire", "never", "always"]):
             status = ClaimStatus.CONTESTED
             badge = BadgeColor.AMBER
             summary = "Direct clinical markers in human trials show mixed, non-definitive findings despite strong animal or in-vitro models."
+            confidence = 0.68
             citations = [
                 Citation(
                     title="Systematic Review & Meta-Analysis of Clinical Trials",
@@ -299,6 +444,7 @@ Verify whether this statement matches current scientific literature, authoritati
             status = ClaimStatus.UNSUPPORTED
             badge = BadgeColor.RED
             summary = "Contradicted by controlled clinical trials and established physiological consensus."
+            confidence = 0.88
             citations = [
                 Citation(
                     title="Controlled Human Energy Balance & Metabolic Review",
@@ -311,6 +457,7 @@ Verify whether this statement matches current scientific literature, authoritati
             status = ClaimStatus.VERIFIED
             badge = BadgeColor.GREEN
             summary = "Directly corroborated by published cystic fibrosis clinical care guidelines and pulmonary medicine consensus."
+            confidence = 0.94
             citations = [
                 Citation(
                     title="Clinical Practice Guidelines for Cystic Fibrosis & Airborne Infection Control",
@@ -323,6 +470,7 @@ Verify whether this statement matches current scientific literature, authoritati
             status = ClaimStatus.VERIFIED
             badge = BadgeColor.GREEN
             summary = "Supported by international energy grid reports and clean tech production analytics."
+            confidence = 0.92
             citations = [
                 Citation(
                     title="Global Clean Energy & Grid Transmission Benchmark Report",
@@ -335,6 +483,7 @@ Verify whether this statement matches current scientific literature, authoritati
             status = ClaimStatus.VERIFIED
             badge = BadgeColor.GREEN
             summary = "Directly supported by empirical AI compute scaling laws and foundation model training benchmarks."
+            confidence = 0.95
             citations = [
                 Citation(
                     title="Empirical Analysis of Compute-Optimal Large Language Model Training",
@@ -347,6 +496,7 @@ Verify whether this statement matches current scientific literature, authoritati
             status = ClaimStatus.VERIFIED
             badge = BadgeColor.GREEN
             summary = f"Supported by peer-reviewed literature and empirical consensus in {context.domain if context else 'observational science'}."
+            confidence = 0.88
             citations = [
                 Citation(
                     title="Longitudinal Evidence & Consensus Verification",
@@ -355,6 +505,15 @@ Verify whether this statement matches current scientific literature, authoritati
                     type="Peer-Reviewed Paper"
                 )
             ]
+
+        # Enforce confidence cutoff guardrail
+        if confidence < settings.MIN_GROUNDING_CONFIDENCE_CONTESTED or not citations:
+            status = ClaimStatus.UNVERIFIED
+            badge = BadgeColor.GRAY
+            summary = "Unverified / Missing Context: Insufficient peer-reviewed evidence or ambiguous consensus to make a definitive determination."
+        elif status == ClaimStatus.VERIFIED and confidence < settings.MIN_GROUNDING_CONFIDENCE_VERIFIED:
+            status = ClaimStatus.CONTESTED
+            badge = BadgeColor.AMBER
 
         return Claim(
             id=claim_id,
@@ -368,7 +527,7 @@ Verify whether this statement matches current scientific literature, authoritati
             badge_color=badge,
             verdict_summary=summary,
             citations=citations,
-            confidence_score=0.92,
+            confidence_score=confidence,
             search_query=extracted.search_query
         )
 

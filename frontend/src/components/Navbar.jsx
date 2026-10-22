@@ -1,5 +1,5 @@
 import React from 'react';
-import { Layers, Sparkles, Youtube, CheckCircle, FileText, Activity } from 'lucide-react';
+import { Layers, Sparkles, Youtube, CheckCircle, FileText, Activity, ShieldCheck } from 'lucide-react';
 
 export default function Navbar({
   sessions,
@@ -8,6 +8,7 @@ export default function Navbar({
   onOpenIngest,
   onOpenDossier,
   onOpenVerify,
+  onOpenCompliance,
   truthScore
 }) {
   return (
@@ -51,6 +52,16 @@ export default function Navbar({
 
       {/* Action Buttons */}
       <div className="flex items-center space-x-3">
+        {/* Compliance & Guardrails */}
+        <button
+          onClick={onOpenCompliance}
+          className="flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-white bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700/60 transition shadow-sm"
+          title="Google Cloud Compliance & Responsible AI Guardrails"
+        >
+          <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+          <span className="hidden sm:inline">Compliance & Guardrails</span>
+        </button>
+
         {/* Live Test Assertion */}
         <button
           onClick={onOpenVerify}

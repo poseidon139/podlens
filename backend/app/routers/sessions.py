@@ -9,10 +9,16 @@ router = APIRouter(prefix="/sessions", tags=["Sessions"])
 @router.post("", response_model=Session, status_code=201)
 def create_session(request: IngestSessionRequest):
     """
-    Ingest a new podcast stream (YouTube URL, direct audio, or pre-loaded sample)
+    Ingest a new podcast stream (YouTube URL, direct audio, or pre-loaded sample).
+    Applies input sanitization, SSRF guardrails, and validation.
     """
-    session = ingestion_service.create_session(request)
-    return session
+    try:
+        session = ingestion_service.create_session(request)
+        return session
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Ingestion failed: {e}")
 
 @router.get("", response_model=List[Session])
 def list_sessions():

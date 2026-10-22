@@ -2,7 +2,7 @@ import logging
 from typing import Dict, List, Optional
 from datetime import datetime, timezone
 from ..config import settings
-from ..models.schemas import Session, Claim, DossierMetrics, ClaimStatus
+from ..models.schemas import Session, Claim, DossierMetrics, ClaimStatus, ClaimFeedback
 from ..data.sample_episodes import SAMPLE_EPISODES, SAMPLE_CLAIMS
 
 logger = logging.getLogger("podlens.firestore")
@@ -12,6 +12,7 @@ class FirestoreService:
         self.db = None
         self._in_memory_sessions: Dict[str, Session] = {}
         self._in_memory_claims: Dict[str, List[Claim]] = {}
+        self._in_memory_feedback: List[ClaimFeedback] = []
         self._init_firestore()
         self._load_seed_data()
 
@@ -183,6 +184,7 @@ class FirestoreService:
             f"- 🟢 **Verified by Authoritative Literature:** `{metrics.verified}`",
             f"- 🟡 **Contested / Lacking Human Evidence:** `{metrics.contested}`",
             f"- 🔴 **Unsupported / Debunked Assertions:** `{metrics.unsupported}`",
+            f"- ⚪ **Unverified / Missing Context:** `{getattr(metrics, 'unverified', 0)}`",
             "",
             "---",
             "",
@@ -191,7 +193,14 @@ class FirestoreService:
         ]
 
         for idx, c in enumerate(claims, 1):
-            badge = "🟢 VERIFIED" if c.status == ClaimStatus.VERIFIED else ("🟡 CONTESTED" if c.status == ClaimStatus.CONTESTED else "🔴 UNSUPPORTED")
+            if c.status == ClaimStatus.VERIFIED:
+                badge = "🟢 VERIFIED"
+            elif c.status == ClaimStatus.CONTESTED:
+                badge = "🟡 CONTESTED"
+            elif c.status == ClaimStatus.UNSUPPORTED:
+                badge = "🔴 UNSUPPORTED"
+            else:
+                badge = "⚪ UNVERIFIED"
             mins_s = int(c.timestamp_start // 60)
             secs_s = int(c.timestamp_start % 60)
             mins_e = int(c.timestamp_end // 60)
@@ -212,5 +221,28 @@ class FirestoreService:
             md.append("")
 
         return "\n".join(md)
+
+    def save_feedback(self, feedback: ClaimFeedback):
+        """Save human-in-the-loop user feedback / verdict dispute to Firestore & memory"""
+        self._in_memory_feedback.append(feedback)
+        if self.db:
+            try:
+                self.db.collection("claim_feedback").document(feedback.feedback_id).set(feedback.model_dump())
+            except Exception as e:
+                logger.error(f"Error saving feedback {feedback.feedback_id} to Firestore: {e}")
+
+    def get_claim_feedback(self, claim_id: str) -> List[ClaimFeedback]:
+        """Fetch feedback submitted for a specific claim"""
+        results = [f for f in self._in_memory_feedback if f.claim_id == claim_id]
+        if self.db:
+            try:
+                docs = self.db.collection("claim_feedback").where("claim_id", "==", claim_id).stream()
+                for d in docs:
+                    fb = ClaimFeedback(**d.to_dict())
+                    if not any(r.feedback_id == fb.feedback_id for r in results):
+                        results.append(fb)
+            except Exception as e:
+                logger.error(f"Error reading feedback from Firestore for claim {claim_id}: {e}")
+        return results
 
 firestore_service = FirestoreService()

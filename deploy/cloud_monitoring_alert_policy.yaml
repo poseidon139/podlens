@@ -1,0 +1,84 @@
+# ==============================================================================
+# Google Cloud Monitoring Alert Policies for PodLens (Team Dronger)
+# Complies with Checklist Item 3: "Observability & Audit Telemetry"
+# ==============================================================================
+
+displayName: "PodLens - Production Observability & Guardrails Alerts"
+combiner: "OR"
+conditions:
+  # 1. Cloud Run 5xx Service Error Spike
+  - displayName: "Cloud Run - 5xx Error Rate > 5%"
+    conditionThreshold:
+      filter: >-
+        resource.type = "cloud_run_revision" AND
+        metric.type = "run.googleapis.com/request_count" AND
+        metric.labels.response_code_class = "5xx"
+      comparison: COMPARISON_GT
+      thresholdValue: 0.05
+      duration: "300s"
+      aggregations:
+        - alignmentPeriod: "60s"
+          perSeriesAligner: ALIGN_RATE
+          crossSeriesReducer: REDUCE_SUM
+          groupByFields:
+            - "resource.labels.service_name"
+      trigger:
+        count: 1
+
+  # 2. Cloud Run Request Latency Spike (p95 > 5000ms)
+  - displayName: "Cloud Run - p95 Request Latency > 5000ms"
+    conditionThreshold:
+      filter: >-
+        resource.type = "cloud_run_revision" AND
+        metric.type = "run.googleapis.com/request_latencies"
+      comparison: COMPARISON_GT
+      thresholdValue: 5000
+      duration: "300s"
+      aggregations:
+        - alignmentPeriod: "60s"
+          perSeriesAligner: ALIGN_PERCENTILE_95
+          crossSeriesReducer: REDUCE_MEAN
+          groupByFields:
+            - "resource.labels.service_name"
+      trigger:
+        count: 1
+
+  # 3. Vertex AI Safety Filter Block Triggered
+  - displayName: "PodLens - Safety Filter Block / Policy Violation Triggered"
+    conditionThreshold:
+      filter: >-
+        resource.type = "cloud_run_revision" AND
+        metric.type = "logging.googleapis.com/user/podlens_safety_block_count"
+      comparison: COMPARISON_GT
+      thresholdValue: 0
+      duration: "60s"
+      aggregations:
+        - alignmentPeriod: "60s"
+          perSeriesAligner: ALIGN_DELTA
+          crossSeriesReducer: REDUCE_SUM
+      trigger:
+        count: 1
+
+  # 4. Ingestion / API Rate Limit Exceeded (HTTP 429)
+  - displayName: "Cloud Run - Rate Limit Exceeded (HTTP 429) Spike"
+    conditionThreshold:
+      filter: >-
+        resource.type = "cloud_run_revision" AND
+        metric.type = "run.googleapis.com/request_count" AND
+        metric.labels.response_code = "429"
+      comparison: COMPARISON_GT
+      thresholdValue: 10
+      duration: "180s"
+      aggregations:
+        - alignmentPeriod: "60s"
+          perSeriesAligner: ALIGN_DELTA
+          crossSeriesReducer: REDUCE_SUM
+      trigger:
+        count: 1
+
+documentation:
+  content: >-
+    PodLens Automated Guardrail Alert:
+    One or more operational health thresholds (5xx errors, p95 latency, Vertex AI safety filter blocks, or rate limit 429s) has been breached on Cloud Run.
+    Inspect Cloud Logging with filter: `resource.type="cloud_run_revision" jsonPayload.audit.event_type="SAFETY_BLOCK_TRIGGERED"`
+  mimeType: "text/markdown"

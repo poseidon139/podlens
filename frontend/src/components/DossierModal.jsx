@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Download, Copy, Check, FileText, CheckCircle2, AlertTriangle, XCircle, Share2 } from 'lucide-react';
+import { X, Download, Copy, Check, FileText, CheckCircle2, AlertTriangle, XCircle, HelpCircle, ShieldAlert } from 'lucide-react';
 import { getExportUrl } from '../services/api';
 
 export default function DossierModal({ session, metrics: propMetrics, claims = [], isOpen, onClose }) {
@@ -7,12 +7,18 @@ export default function DossierModal({ session, metrics: propMetrics, claims = [
 
   if (!isOpen || !session) return null;
 
+  const verifiedClaims = claims.filter(c => (c.status === 'VERIFIED' || c.status?.value === 'VERIFIED'));
+  const contestedClaims = claims.filter(c => (c.status === 'CONTESTED' || c.status?.value === 'CONTESTED'));
+  const unsupportedClaims = claims.filter(c => (c.status === 'UNSUPPORTED' || c.status?.value === 'UNSUPPORTED'));
+  const unverifiedClaims = claims.filter(c => (c.status === 'UNVERIFIED' || c.status?.value === 'UNVERIFIED'));
+
   const metrics = propMetrics || {
-    verified: claims.filter(c => (c.status === 'VERIFIED' || c.status?.value === 'VERIFIED')).length,
-    contested: claims.filter(c => (c.status === 'CONTESTED' || c.status?.value === 'CONTESTED')).length,
-    unsupported: claims.filter(c => (c.status === 'UNSUPPORTED' || c.status?.value === 'UNSUPPORTED')).length,
+    verified: verifiedClaims.length,
+    contested: contestedClaims.length,
+    unsupported: unsupportedClaims.length,
+    unverified: unverifiedClaims.length,
     total_claims: claims.length,
-    truth_score: claims.length > 0 ? Math.round((claims.filter(c => (c.status === 'VERIFIED' || c.status?.value === 'VERIFIED')).length / claims.length) * 100) : (session.metrics?.truth_score || 100)
+    truth_score: claims.length > 0 ? Math.round((verifiedClaims.length / claims.length) * 100) : (session.metrics?.truth_score || 100)
   };
 
   const handleCopyBibliography = () => {
@@ -89,36 +95,41 @@ export default function DossierModal({ session, metrics: propMetrics, claims = [
             <div className="flex justify-between text-xs font-medium text-slate-300 mb-2">
               <span>Status Distribution</span>
               <span className="text-slate-500 font-mono">
-                {metrics.verified} Verified • {metrics.contested} Contested • {metrics.unsupported} Refuted
+                {metrics.verified || 0} Verified • {metrics.contested || 0} Contested • {metrics.unsupported || 0} Refuted • {metrics.unverified || 0} Unverified
               </span>
             </div>
             <div className="h-3 w-full bg-slate-800 rounded-full overflow-hidden flex">
               <div
-                style={{ width: `${(metrics.verified / (metrics.total_claims || 1)) * 100}%` }}
+                style={{ width: `${((metrics.verified || 0) / (metrics.total_claims || 1)) * 100}%` }}
                 className="bg-emerald-500 transition-all duration-500"
-                title={`Verified: ${metrics.verified}`}
+                title={`Verified: ${metrics.verified || 0}`}
               />
               <div
-                style={{ width: `${(metrics.contested / (metrics.total_claims || 1)) * 100}%` }}
+                style={{ width: `${((metrics.contested || 0) / (metrics.total_claims || 1)) * 100}%` }}
                 className="bg-amber-500 transition-all duration-500"
-                title={`Contested: ${metrics.contested}`}
+                title={`Contested: ${metrics.contested || 0}`}
               />
               <div
-                style={{ width: `${(metrics.unsupported / (metrics.total_claims || 1)) * 100}%` }}
+                style={{ width: `${((metrics.unsupported || 0) / (metrics.total_claims || 1)) * 100}%` }}
                 className="bg-rose-500 transition-all duration-500"
-                title={`Unsupported: ${metrics.unsupported}`}
+                title={`Unsupported: ${metrics.unsupported || 0}`}
+              />
+              <div
+                style={{ width: `${((metrics.unverified || 0) / (metrics.total_claims || 1)) * 100}%` }}
+                className="bg-slate-500 transition-all duration-500"
+                title={`Unverified: ${metrics.unverified || 0}`}
               />
             </div>
           </div>
 
           {/* Quick Metrics Grid */}
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="p-3.5 rounded-xl bg-slate-950/60 border border-emerald-500/20 flex flex-col">
               <div className="flex items-center space-x-1.5 text-emerald-400 text-xs font-semibold uppercase mb-1">
                 <CheckCircle2 className="w-3.5 h-3.5" />
                 <span>Verified</span>
               </div>
-              <span className="text-2xl font-bold text-white font-mono">{metrics.verified}</span>
+              <span className="text-2xl font-bold text-white font-mono">{metrics.verified || 0}</span>
               <span className="text-[10px] text-slate-400 mt-1">Backed by peer-reviewed consensus</span>
             </div>
 
@@ -127,7 +138,7 @@ export default function DossierModal({ session, metrics: propMetrics, claims = [
                 <AlertTriangle className="w-3.5 h-3.5" />
                 <span>Contested</span>
               </div>
-              <span className="text-2xl font-bold text-white font-mono">{metrics.contested}</span>
+              <span className="text-2xl font-bold text-white font-mono">{metrics.contested || 0}</span>
               <span className="text-[10px] text-slate-400 mt-1">Mixed results or animal-only data</span>
             </div>
 
@@ -136,9 +147,29 @@ export default function DossierModal({ session, metrics: propMetrics, claims = [
                 <XCircle className="w-3.5 h-3.5" />
                 <span>Refuted</span>
               </div>
-              <span className="text-2xl font-bold text-white font-mono">{metrics.unsupported}</span>
+              <span className="text-2xl font-bold text-white font-mono">{metrics.unsupported || 0}</span>
               <span className="text-[10px] text-slate-400 mt-1">Debunked or contradicted by data</span>
             </div>
+
+            <div className="p-3.5 rounded-xl bg-slate-950/60 border border-slate-700/60 flex flex-col">
+              <div className="flex items-center space-x-1.5 text-slate-300 text-xs font-semibold uppercase mb-1">
+                <HelpCircle className="w-3.5 h-3.5" />
+                <span>Unverified</span>
+              </div>
+              <span className="text-2xl font-bold text-white font-mono">{metrics.unverified || 0}</span>
+              <span className="text-[10px] text-slate-400 mt-1">Low confidence or missing context</span>
+            </div>
+          </div>
+
+          {/* Responsible AI & Compliance Disclosure */}
+          <div className="p-3.5 rounded-xl bg-slate-950/80 border border-slate-800 text-[11px] text-slate-400 space-y-1.5">
+            <div className="flex items-center space-x-1.5 text-slate-300 font-semibold">
+              <ShieldAlert className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Google Cloud Responsible AI Guardrails & Governance Notice</span>
+            </div>
+            <p className="leading-relaxed">
+              PodLens uses Vertex AI Search Grounding and adheres to the Google Cloud Agentic AI Responsible Use Guidelines. Claims with confidence below 60% or ambiguous sources default strictly to <strong className="text-slate-300">Unverified / Missing Context</strong> rather than issuing ungrounded determinations. AI-generated verdicts serve as assistive educational telemetry and do not constitute clinical, diagnostic, or legal counsel under GCP Platform Terms (Sec. 14, 15, 19, 20).
+            </p>
           </div>
 
           {/* Export Actions (User Journey Step 4) */}

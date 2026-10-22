@@ -1,5 +1,19 @@
 import React, { useState } from 'react';
-import { ShieldCheck, AlertTriangle, XCircle, ExternalLink, Clock, Copy, Check, BookOpen } from 'lucide-react';
+import { 
+  ShieldCheck, 
+  AlertTriangle, 
+  XCircle, 
+  HelpCircle, 
+  ExternalLink, 
+  Clock, 
+  Copy, 
+  Check, 
+  BookOpen, 
+  ThumbsUp, 
+  Flag, 
+  Send 
+} from 'lucide-react';
+import { submitClaimFeedback } from '../services/api';
 
 function formatTime(seconds) {
   if (isNaN(seconds)) return "00:00";
@@ -8,15 +22,54 @@ function formatTime(seconds) {
   return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
 }
 
-export default function ClaimCard({ claim, isActive, onJumpToTime }) {
+export default function ClaimCard({ claim, isActive, onJumpToTime, sessionId }) {
   const [copied, setCopied] = useState(false);
+  const [showFeedbackModal, setShowFeedbackModal] = useState(false);
+  const [feedbackRating, setFeedbackRating] = useState('agree');
+  const [feedbackComment, setFeedbackComment] = useState('');
+  const [feedbackCorrection, setFeedbackCorrection] = useState('');
+  const [feedbackSubmitted, setFeedbackSubmitted] = useState(false);
+  const [submittingFeedback, setSubmittingFeedback] = useState(false);
 
   const handleCopyCitation = (e) => {
     e.stopPropagation();
-    const text = `Claim: "${claim.claim_text}" (${claim.status})\nConsensus: ${claim.verdict_summary}\nSources: ${claim.citations.map(c => `${c.title} (${c.url})`).join(', ')}`;
+    const text = `Claim: "${claim.claim_text}" (${claim.status})\nConsensus: ${claim.verdict_summary}\nSources: ${(claim.citations || []).map(c => `${c.title} (${c.url})`).join(', ')}`;
     navigator.clipboard.writeText(text);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleOpenFeedback = (e, rating) => {
+    e.stopPropagation();
+    setFeedbackRating(rating);
+    setShowFeedbackModal(true);
+  };
+
+  const handleSubmitFeedback = async (e) => {
+    e.stopPropagation();
+    const targetSessionId = sessionId || claim.session_id;
+    if (!targetSessionId || !claim.id) return;
+
+    setSubmittingFeedback(true);
+    try {
+      await submitClaimFeedback(targetSessionId, claim.id, {
+        rating: feedbackRating,
+        comments: feedbackComment.trim() || undefined,
+        suggested_correction: feedbackCorrection.trim() || undefined
+      });
+      setFeedbackSubmitted(true);
+      setTimeout(() => {
+        setShowFeedbackModal(false);
+        setFeedbackSubmitted(false);
+        setFeedbackComment('');
+        setFeedbackCorrection('');
+      }, 2000);
+    } catch (err) {
+      console.error('Failed to submit feedback:', err);
+      alert('Could not submit feedback at this time.');
+    } finally {
+      setSubmittingFeedback(false);
+    }
   };
 
   let statusConfig = {
@@ -39,6 +92,13 @@ export default function ClaimCard({ claim, isActive, onJumpToTime }) {
       icon: <XCircle className="w-3.5 h-3.5 text-rose-400" />,
       label: 'UNSUPPORTED',
       border: isActive ? 'border-rose-500 shadow-lg shadow-rose-500/10' : 'border-slate-800 hover:border-slate-700'
+    };
+  } else if (claim.status === 'UNVERIFIED') {
+    statusConfig = {
+      badge: 'bg-slate-700/40 text-slate-300 border-slate-600/50',
+      icon: <HelpCircle className="w-3.5 h-3.5 text-slate-300" />,
+      label: 'UNVERIFIED / MISSING CONTEXT',
+      border: isActive ? 'border-slate-500 shadow-lg shadow-slate-500/10' : 'border-slate-800 hover:border-slate-700'
     };
   }
 
@@ -126,9 +186,30 @@ export default function ClaimCard({ claim, isActive, onJumpToTime }) {
         </div>
       )}
 
-      {/* Bottom Footer: Quick Copy Citation */}
+      {/* Bottom Footer: Confidence, Feedback & Quick Copy */}
       <div className="flex items-center justify-between pt-2.5 mt-2 border-t border-slate-800/40 text-[10px] text-slate-400">
-        <span>Confidence: {claim.confidence_score ? Math.round(claim.confidence_score * 100) : 95}%</span>
+        <div className="flex items-center space-x-3">
+          <span>Confidence: {claim.confidence_score ? Math.round(claim.confidence_score * 100) : (claim.status === 'UNVERIFIED' ? 'Low (<60%)' : '95%')}</span>
+          
+          {/* User Feedback Mechanism */}
+          <div className="flex items-center space-x-1.5 border-l border-slate-800 pl-2">
+            <button
+              onClick={(e) => handleOpenFeedback(e, 'agree')}
+              className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-emerald-400 transition"
+              title="Agree / Confirm Verdict"
+            >
+              <ThumbsUp className="w-3 h-3" />
+            </button>
+            <button
+              onClick={(e) => handleOpenFeedback(e, 'disagree')}
+              className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-rose-400 transition"
+              title="Flag Dispute / Inaccurate Verdict"
+            >
+              <Flag className="w-3 h-3" />
+            </button>
+          </div>
+        </div>
+
         <button
           onClick={handleCopyCitation}
           className="flex items-center space-x-1 text-slate-400 hover:text-slate-200 transition"
@@ -137,6 +218,71 @@ export default function ClaimCard({ claim, isActive, onJumpToTime }) {
           <span>{copied ? 'Copied' : 'Copy Citation'}</span>
         </button>
       </div>
+
+      {/* Inline Feedback Popover/Modal */}
+      {showFeedbackModal && (
+        <div 
+          onClick={(e) => e.stopPropagation()} 
+          className="mt-3 p-3 rounded-lg bg-slate-950 border border-indigo-500/40 shadow-xl space-y-2 animate-in fade-in"
+        >
+          <div className="flex items-center justify-between text-xs font-semibold text-slate-200">
+            <span className="flex items-center space-x-1.5">
+              <Flag className="w-3.5 h-3.5 text-indigo-400" />
+              <span>Submit Verdict Feedback</span>
+            </span>
+            <button
+              onClick={() => setShowFeedbackModal(false)}
+              className="text-slate-400 hover:text-white text-xs"
+            >
+              ✕
+            </button>
+          </div>
+
+          {feedbackSubmitted ? (
+            <div className="p-2 rounded bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 text-xs flex items-center space-x-2">
+              <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+              <span>Feedback recorded. Thank you for contributing to human-in-the-loop audit accuracy!</span>
+            </div>
+          ) : (
+            <>
+              <div className="flex items-center space-x-2 text-[11px]">
+                <label className="text-slate-400">Verdict assessment:</label>
+                <select
+                  value={feedbackRating}
+                  onChange={(e) => setFeedbackRating(e.target.value)}
+                  className="bg-slate-900 border border-slate-700 rounded px-2 py-0.5 text-slate-200 text-xs"
+                >
+                  <option value="agree">Accurate / Agree</option>
+                  <option value="disagree">Contested / Disagree</option>
+                  <option value="inaccurate">Factually Inaccurate</option>
+                  <option value="harmful">Safety / Policy Concern</option>
+                </select>
+              </div>
+
+              <input
+                type="text"
+                placeholder="Optional explanation / reason..."
+                value={feedbackComment}
+                onChange={(e) => setFeedbackComment(e.target.value)}
+                maxLength={500}
+                className="w-full bg-slate-900 border border-slate-700/80 rounded px-2.5 py-1 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-[10px] text-slate-500">Subject to GCP Responsible AI audit</span>
+                <button
+                  onClick={handleSubmitFeedback}
+                  disabled={submittingFeedback}
+                  className="flex items-center space-x-1 px-3 py-1 bg-indigo-600 hover:bg-indigo-500 disabled:bg-slate-800 text-white rounded text-xs font-medium transition"
+                >
+                  <Send className="w-3 h-3" />
+                  <span>{submittingFeedback ? 'Submitting...' : 'Submit'}</span>
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 }

@@ -5,6 +5,7 @@ import ContextFeed from './components/ContextFeed';
 import DossierModal from './components/DossierModal';
 import IngestionModal from './components/IngestionModal';
 import LiveVerifyModal from './components/LiveVerifyModal';
+import ComplianceModal from './components/ComplianceModal';
 import { fetchSessions, fetchSession, fetchClaims, createSession, analyzeSegment, fetchTranscript } from './services/api';
 
 export default function App() {
@@ -21,6 +22,7 @@ export default function App() {
   const [isDossierOpen, setIsDossierOpen] = useState(false);
   const [isIngestOpen, setIsIngestOpen] = useState(false);
   const [isVerifyOpen, setIsVerifyOpen] = useState(false);
+  const [isComplianceOpen, setIsComplianceOpen] = useState(false);
 
   const wsRef = useRef(null);
 
@@ -243,6 +245,7 @@ export default function App() {
         onOpenIngest={() => setIsIngestOpen(true)}
         onOpenDossier={() => setIsDossierOpen(true)}
         onOpenVerify={() => setIsVerifyOpen(true)}
+        onOpenCompliance={() => setIsComplianceOpen(true)}
         truthScore={liveMetrics.truth_score}
       />
 
@@ -298,6 +301,7 @@ export default function App() {
             isWsConnected={isWsConnected}
             onOpenVerify={() => setIsVerifyOpen(true)}
             sessionContext={currentSession?.context}
+            sessionId={activeSessionId}
           />
         </section>
       </main>
@@ -323,6 +327,11 @@ export default function App() {
         isOpen={isVerifyOpen}
         onClose={() => setIsVerifyOpen(false)}
         onClaimVerified={handleClaimVerified}
+      />
+
+      <ComplianceModal
+        isOpen={isComplianceOpen}
+        onClose={() => setIsComplianceOpen(false)}
       />
     </div>
   );

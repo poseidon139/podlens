@@ -31,7 +31,8 @@ export default function ContextFeed({
   onJumpToTime,
   isWsConnected = false,
   onOpenVerify,
-  sessionContext = null
+  sessionContext = null,
+  sessionId = null
 }) {
   const [activeTab, setActiveTab] = useState('SPEECH_LOG'); // 'SPEECH_LOG' | 'CLAIMS_DOSSIER'
   const [statusFilter, setStatusFilter] = useState('ALL');
@@ -46,6 +47,7 @@ export default function ContextFeed({
   const verifiedCount = claims.filter(c => c.status === 'VERIFIED' || c.status?.value === 'VERIFIED').length;
   const contestedCount = claims.filter(c => c.status === 'CONTESTED' || c.status?.value === 'CONTESTED').length;
   const unsupportedCount = claims.filter(c => c.status === 'UNSUPPORTED' || c.status?.value === 'UNSUPPORTED').length;
+  const unverifiedCount = claims.filter(c => c.status === 'UNVERIFIED' || c.status?.value === 'UNVERIFIED').length;
 
   // Sort claims so active claim is on top, followed by most recently spoken claims
   const sortedClaims = [...filteredClaims].sort((a, b) => {
@@ -187,6 +189,18 @@ export default function ContextFeed({
           >
             <span className="w-1.5 h-1.5 rounded-full bg-rose-500"></span>
             <span>Refuted ({unsupportedCount})</span>
+          </button>
+
+          <button
+            onClick={() => setStatusFilter('UNVERIFIED')}
+            className={`flex items-center space-x-1 px-2.5 py-1 rounded-lg text-xs font-medium transition ${
+              statusFilter === 'UNVERIFIED'
+                ? 'bg-slate-700 text-white shadow-sm'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800/60'
+            }`}
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+            <span>Unverified ({unverifiedCount})</span>
           </button>
         </div>
       ) : (
@@ -373,6 +387,7 @@ export default function ContextFeed({
                 claim={claim}
                 isActive={claim.id === activeClaimId}
                 onJumpToTime={onJumpToTime}
+                sessionId={sessionId || claim.session_id}
               />
             ))
           )

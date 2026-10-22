@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from ..models.schemas import Session, IngestSessionRequest, DossierMetrics, Claim, TranscriptLine, Citation, ClaimStatus, BadgeColor, ClaimCategory, VideoContext
 from .firestore_service import firestore_service
 from .vertex_ai_service import vertex_ai_service
+from .sanitizer import sanitize_text, validate_media_url
 from ..data.sample_episodes import SAMPLE_EPISODES
 
 logger = logging.getLogger("podlens.ingestion")
@@ -435,6 +436,11 @@ class IngestionService:
         if req.source_type == "SAMPLE" and req.sample_id and req.sample_id in SAMPLE_EPISODES:
             return SAMPLE_EPISODES[req.sample_id]
 
+        # Guardrail: URL validation & SSRF protection
+        if req.media_url and not validate_media_url(req.media_url):
+            logger.warning(f"Rejected invalid or non-whitelisted media URL: {req.media_url}")
+            raise ValueError("Invalid media URL target or blocked IP network")
+
         vid_id = extract_youtube_video_id(req.media_url or "")
         
         # If user explicitly picks a sample URL, return that sample
@@ -455,12 +461,12 @@ class IngestionService:
 
         # Fetch real YouTube video metadata (Title, Author)
         yt_meta = fetch_youtube_metadata(vid_id) if vid_id else {}
-        extracted_title = yt_meta.get("title", "")
-        extracted_author = yt_meta.get("author", "")
+        extracted_title = sanitize_text(yt_meta.get("title", ""), max_length=150)
+        extracted_author = sanitize_text(yt_meta.get("author", ""), max_length=100)
 
         session_id = f"sess_{uuid.uuid4().hex[:8]}"
         if req.title:
-            title = req.title
+            title = sanitize_text(req.title, max_length=150)
         elif extracted_title and extracted_author:
             title = f"{extracted_title} ({extracted_author})"
         elif extracted_title:
@@ -722,9 +728,12 @@ class IngestionService:
                 elif c_status_val == "CONTESTED":
                     status = "CONTESTED"
                     color = "amber"
-                else:
+                elif c_status_val == "UNSUPPORTED":
                     status = "UNSUPPORTED"
                     color = "red"
+                else:
+                    status = "UNVERIFIED"
+                    color = "gray"
                 summary = matching_claim.verdict_summary
                 claim_id = matching_claim.id
                 spk = matching_claim.speaker
@@ -833,10 +842,12 @@ class IngestionService:
             v_cnt = sum(1 for c in claims if (hasattr(c.status, 'value') and c.status.value == 'VERIFIED') or c.status == 'VERIFIED')
             c_cnt = sum(1 for c in claims if (hasattr(c.status, 'value') and c.status.value == 'CONTESTED') or c.status == 'CONTESTED')
             u_cnt = sum(1 for c in claims if (hasattr(c.status, 'value') and c.status.value == 'UNSUPPORTED') or c.status == 'UNSUPPORTED')
+            unv_cnt = sum(1 for c in claims if (hasattr(c.status, 'value') and c.status.value == 'UNVERIFIED') or c.status == 'UNVERIFIED')
             tot = len(claims)
             session.metrics.verified = v_cnt
             session.metrics.contested = c_cnt
             session.metrics.unsupported = u_cnt
+            session.metrics.unverified = unv_cnt
             session.metrics.total_claims = tot
             session.metrics.truth_score = round((v_cnt / max(1, tot)) * 100, 1)
             session.total_claims = tot

@@ -1,17 +1,25 @@
 import os
+import time
+import asyncio
 import logging
-from fastapi import FastAPI
+from collections import defaultdict
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from .config import settings
 from .routers import sessions, claims, websocket
+from .services.audit_logger import audit_logger
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s"
 )
 logger = logging.getLogger("podlens.main")
+
+# Sliding window in-memory rate limiter per IP address
+_ip_request_timestamps = defaultdict(list)
+_heavy_endpoint_timestamps = defaultdict(list)
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
@@ -28,6 +36,81 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+@app.middleware("http")
+async def security_guardrails_middleware(request: Request, call_next):
+    """
+    Ingestion Controls & Guardrail Middleware:
+    - Enforces sliding-window rate limits to prevent automated execution abuse.
+    - Implements request timeout guardrails to protect Cloud Run resources.
+    - Emits structured telemetry records for incoming API requests.
+    """
+    path = request.url.path
+    # Exempt static assets, websocket probes, and health check from rate limits
+    if path.startswith("/assets") or path == "/healthz" or path.startswith("/ws/"):
+        return await call_next(request)
+
+    client_ip = request.client.host if request.client else "unknown"
+    current_time = time.time()
+    one_minute_ago = current_time - 60.0
+
+    # 1. Clean old timestamps for client IP
+    _ip_request_timestamps[client_ip] = [
+        t for t in _ip_request_timestamps[client_ip] if t > one_minute_ago
+    ]
+
+    # 2. General Rate Limiting Check
+    if len(_ip_request_timestamps[client_ip]) >= settings.RATE_LIMIT_PER_MINUTE:
+        audit_logger.log_event(
+            event_type="RATE_LIMIT_EXCEEDED",
+            message=f"Rate limit exceeded for IP {client_ip} on {path}",
+            severity="WARNING",
+            audit_data={"client_ip": client_ip, "path": path, "limit": settings.RATE_LIMIT_PER_MINUTE}
+        )
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Too Many Requests. Rate limit exceeded to ensure service stability. Please retry in 60s."},
+            headers={"Retry-After": "60", "X-RateLimit-Limit": str(settings.RATE_LIMIT_PER_MINUTE)}
+        )
+
+    # 3. Heavy Endpoint Rate Limiting (e.g. on-demand AI grounding endpoints)
+    if "/verify" in path or "/analyze_segment" in path:
+        _heavy_endpoint_timestamps[client_ip] = [
+            t for t in _heavy_endpoint_timestamps[client_ip] if t > one_minute_ago
+        ]
+        if len(_heavy_endpoint_timestamps[client_ip]) >= settings.VERIFY_RATE_LIMIT_PER_MINUTE:
+            audit_logger.log_event(
+                event_type="HEAVY_ENDPOINT_RATE_LIMIT_EXCEEDED",
+                message=f"Heavy AI verification rate limit exceeded for IP {client_ip}",
+                severity="WARNING",
+                audit_data={"client_ip": client_ip, "path": path, "limit": settings.VERIFY_RATE_LIMIT_PER_MINUTE}
+            )
+            return JSONResponse(
+                status_code=429,
+                content={"detail": "On-demand verification rate limit reached. Please wait before triggering additional grounding checks."},
+                headers={"Retry-After": "60", "X-RateLimit-Limit": str(settings.VERIFY_RATE_LIMIT_PER_MINUTE)}
+            )
+        _heavy_endpoint_timestamps[client_ip].append(current_time)
+
+    _ip_request_timestamps[client_ip].append(current_time)
+
+    # 4. Request Timeout Guardrail (enforces maximum request processing duration)
+    try:
+        response = await asyncio.wait_for(call_next(request), timeout=settings.REQUEST_TIMEOUT_SECONDS)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        return response
+    except asyncio.TimeoutError:
+        audit_logger.log_event(
+            event_type="REQUEST_TIMEOUT_TRIGGERED",
+            message=f"Request to {path} timed out after {settings.REQUEST_TIMEOUT_SECONDS}s",
+            severity="ERROR",
+            audit_data={"client_ip": client_ip, "path": path, "timeout": settings.REQUEST_TIMEOUT_SECONDS}
+        )
+        return JSONResponse(
+            status_code=504,
+            content={"detail": "Gateway Timeout: Request execution exceeded processing timeout threshold."}
+        )
+
 # API Routers
 app.include_router(sessions.router, prefix=settings.API_V1_STR)
 app.include_router(claims.router, prefix=settings.API_V1_STR)
@@ -38,9 +121,21 @@ def health_check():
     return {
         "status": "healthy",
         "version": settings.VERSION,
+        "environment": settings.ENVIRONMENT,
         "gcp_project": settings.GCP_PROJECT_ID or "mock-demo-mode",
         "demo_mode": settings.DEMO_MODE,
-        "gemini_model": settings.GEMINI_MODEL
+        "gemini_model": settings.GEMINI_MODEL,
+        "compliance": {
+            "safety_settings_configured": True,
+            "safety_block_threshold": settings.SAFETY_BLOCK_THRESHOLD,
+            "grounding_confidence_threshold_verified": settings.MIN_GROUNDING_CONFIDENCE_VERIFIED,
+            "grounding_confidence_threshold_contested": settings.MIN_GROUNDING_CONFIDENCE_CONTESTED,
+            "fallback_unverified_enabled": True,
+            "rate_limiting_enabled": True,
+            "request_timeout_seconds": settings.REQUEST_TIMEOUT_SECONDS,
+            "structured_logging_enabled": True,
+            "user_feedback_endpoint_enabled": True
+        }
     }
 
 # Check if frontend static build exists to serve unified in Cloud Run

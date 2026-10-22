@@ -6,11 +6,13 @@ class ClaimStatus(str, Enum):
     VERIFIED = "VERIFIED"
     CONTESTED = "CONTESTED"
     UNSUPPORTED = "UNSUPPORTED"
+    UNVERIFIED = "UNVERIFIED"
 
 class BadgeColor(str, Enum):
     GREEN = "green"
     AMBER = "amber"
     RED = "red"
+    GRAY = "gray"
 
 class ClaimCategory(str, Enum):
     SCIENCE_HEALTH = "SCIENCE_HEALTH"
@@ -52,8 +54,26 @@ class DossierMetrics(BaseModel):
     verified: int = 0
     contested: int = 0
     unsupported: int = 0
+    unverified: int = 0
     total_claims: int = 0
     truth_score: float = Field(100.0, description="Percentage of verified vs total claims")
+
+class ClaimFeedbackRequest(BaseModel):
+    helpful: bool = Field(..., description="Whether user finds the fact-check verdict accurate/helpful")
+    feedback_type: str = Field("ACCURATE", description="ACCURATE, CONTESTED_DISPUTE, INACCURATE_VERDICT, MISSING_SOURCES")
+    user_notes: Optional[str] = Field(None, description="Optional explanation or dispute context from user")
+    suggested_source: Optional[str] = Field(None, description="Optional peer-reviewed paper or link suggested by user")
+
+class ClaimFeedback(BaseModel):
+    feedback_id: str
+    claim_id: str
+    session_id: str
+    helpful: bool
+    feedback_type: str
+    user_notes: Optional[str] = None
+    suggested_source: Optional[str] = None
+    client_ip: Optional[str] = None
+    created_at: str
 
 class VideoContext(BaseModel):
     domain: str = Field("General Science & Empirical Research", description="Primary domain of the video content")
